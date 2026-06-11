@@ -1,26 +1,50 @@
 import SwiftUI
 
-/// Glass detail screen: full-bleed photo, tone-matched ambient gradient,
-/// frosted metadata card, hero zoom, pinch-to-zoom, swipe dismiss, browse next/prev.
+/// Glass detail screen with an Airbnb-style shared-element transition.
+///
+/// The hero is a single floating image whose frame, center and corner radius are
+/// interpolated directly from the tapped cell's exact on-screen rect (`sourceFrame`)
+/// to a computed destination — no `matchedGeometryEffect`, which can't resolve a
+/// correct origin from the gallery's transformed/clipped canvas. One `easeInOut(0.3)`
+/// curve drives the whole thing: the image scales up from where it sat, and the
+/// ambient background + metadata card settle on the same motion. Closing runs the
+/// exact inverse, flying the image back to the cell it came from.
 struct ImageDetailView: View {
     let tiles: [SampleTile]
-    @Binding var selectedTileID: Int?
+    /// Exact global rect of the tapped cell — the hero's start (and end) frame.
+    let sourceFrame: CGRect
+    @Binding var displayedTileID: Int?
+    /// Shared open/close flag, owned by HomeView. Flipping it inside one
+    /// `withAnimation` moves the hero, the gallery blur and the scrim together.
+    @Binding var isExpanded: Bool
     @Binding var tileNotes: [Int: String]
-    var namespace: Namespace.ID
 
     static let glassForeground = Color(red: 1, green: 0.965, blue: 0.918)
-    static let heroSpring = Animation.spring(response: 0.5, dampingFraction: 0.86)
+    /// The one curve everything rides: a soft, slightly long ease — gentle out of
+    /// the start, gentle into the destination — both opening and closing.
+    static let transition = Animation.timingCurve(0.33, 0, 0.2, 1, duration: 0.42)
+    /// Snap-back for cancelled drags (dismiss pull released, page swipe settle).
+    private static let snapBack = Animation.spring(response: 0.32, dampingFraction: 0.84)
+    private static let ambientFade = Animation.easeInOut(duration: 0.5)
 
-    private static let panelSpring = Animation.spring(response: 0.4, dampingFraction: 0.9)
-    private static let ambientSpring = Animation.easeInOut(duration: 0.8)
-    private static let glassDelay: Double = 0.35
-    private static let panelDismissLead: Double = 0.15
+    // Resting corner radii for the cell and the expanded hero.
+    private static let cellRadius: CGFloat = 10
+    private static let heroRadius: CGFloat = 18
+    /// Motion blur rides a parabola: zero at rest, peaking at the midpoint of the
+    /// move, back to zero as it settles — both opening and closing. The peak scales
+    /// with how far the hero actually travels: a tile flying in from a far corner
+    /// blurs up to the max, while one that's already large and centered (feed view)
+    /// barely blurs at all.
+    private static let motionBlurPeakMin: CGFloat = 1.5
+    private static let motionBlurPeakMax: CGFloat = 6
 
-    @State private var expanded = false
-    @State private var showGlass = false
     @State private var ambientA = AmbientGradientColors.fallback
     @State private var ambientB = AmbientGradientColors.fallback
     @State private var showAmbientA = true
+    @State private var motionBlur: CGFloat = 0
+    /// Distance-scaled blur peak, computed on open from the source→destination trip.
+    /// The trip is symmetric, so the close reuses the same peak.
+    @State private var blurPeak: CGFloat = ImageDetailView.motionBlurPeakMin
     @State private var zoomScale: CGFloat = 1
     @State private var zoomOffset: CGSize = .zero
     @State private var dismissDrag: CGSize = .zero
@@ -28,52 +52,117 @@ struct ImageDetailView: View {
     @GestureState private var magnifyBy: CGFloat = 1
 
     private var currentTile: SampleTile? {
-        guard let id = selectedTileID else { return nil }
+        guard let id = displayedTileID else { return nil }
         return tiles.first { $0.id == id }
     }
 
     private var currentIndex: Int? {
-        guard let id = selectedTileID else { return nil }
+        guard let id = displayedTileID else { return nil }
         return tiles.firstIndex { $0.id == id }
+    }
+
+    /// Drag-to-dismiss progress softens the whole sheet as the user pulls down.
+    private var dragOpacity: Double {
+        let progress = min(abs(dismissDrag.height) / 320, 1)
+        return 1 - progress * 0.5
     }
 
     var body: some View {
         if let tile = currentTile {
             GeometryReader { geo in
-                let safeBottom = geo.safeAreaInsets.bottom
+                let dest = heroDestination(
+                    in: geo.size,
+                    safeTop: geo.safeAreaInsets.top,
+                    safeBottom: geo.safeAreaInsets.bottom,
+                    aspect: tile.aspectRatio
+                )
 
                 ZStack {
-                    ambientLayer(colors: ambientA, visible: showAmbientA)
-                    ambientLayer(colors: ambientB, visible: !showAmbientA)
+                    Group {
+                        ambientLayer(colors: ambientA, visible: showAmbientA)
+                        ambientLayer(colors: ambientB, visible: !showAmbientA)
+                    }
+                    .opacity(isExpanded ? dragOpacity : 0)
 
-                    VStack(spacing: 0) {
-                        topBar
+                    // Chrome + hero shift together while the user drags to dismiss.
+                    ZStack {
+                        VStack(spacing: 0) {
+                            topBar
+                                .opacity(isExpanded ? dragOpacity : 0)
+                            Spacer(minLength: 0)
+                        }
 
-                        photoStage(tile: tile)
-                            .layoutPriority(1)
-                            .frame(minHeight: 0, maxHeight: .infinity)
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            glassCard(tile: tile)
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, max(16, geo.safeAreaInsets.bottom + 8))
+                                .opacity(isExpanded ? dragOpacity : 0)
+                                .offset(y: isExpanded ? 0 : 24)
+                        }
 
-                        glassCard(tile: tile)
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, max(16, safeBottom + 8))
-                            .opacity(showGlass ? 1 : 0)
-                            .offset(y: showGlass ? 0 : 16)
+                        heroImage(tile: tile, dest: dest)
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
                     .offset(y: dismissDrag.height)
-                    .opacity(dismissOpacity)
+                }
+                .onAppear {
+                    open(tile: tile, dest: dest, screenHeight: geo.size.height)
                 }
             }
             .ignoresSafeArea()
             .preferredColorScheme(.dark)
-            .onAppear { openDetail(tile: tile) }
-            .onChange(of: selectedTileID) { _, newID in
-                guard let newID, let newTile = tiles.first(where: { $0.id == newID }) else { return }
+            .onChange(of: displayedTileID) { oldID, newID in
+                // Browsing to a sibling image while open (next/prev, swipe).
+                guard isExpanded, let newID, oldID != nil,
+                      let newTile = tiles.first(where: { $0.id == newID }) else { return }
                 resetZoom()
                 crossfadeAmbient(to: newTile)
-                reopenGlass()
             }
         }
+    }
+
+    // MARK: - Hero image
+
+    /// The shared element. Its frame, center and corner radius interpolate between
+    /// `sourceFrame` (the cell) and `dest` (the expanded slot) as `isExpanded` flips,
+    /// so it scales up from exactly where the user tapped.
+    private func heroImage(tile: SampleTile, dest: CGRect) -> some View {
+        let frame = isExpanded ? dest : sourceFrame
+        let radius = isExpanded ? Self.heroRadius : Self.cellRadius
+        let effectiveScale = zoomScale * magnifyBy
+
+        return RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(tile.gradient)
+            .frame(width: frame.width, height: frame.height)
+            .shadow(color: .black.opacity(isExpanded ? 0.4 : 0), radius: isExpanded ? 22 : 0, y: 12)
+            .scaleEffect(effectiveScale)
+            .blur(radius: motionBlur)
+            .offset(x: zoomOffset.width + pageDrag.width, y: zoomOffset.height)
+            .position(x: frame.midX, y: frame.midY)
+            .gesture(combinedImageGesture(tile: tile))
+    }
+
+    /// Fit the tile's aspect ratio into the area between the top bar and the
+    /// metadata card, centered — the hero's resting frame on screen.
+    private func heroDestination(in size: CGSize, safeTop: CGFloat, safeBottom: CGFloat, aspect: CGFloat) -> CGRect {
+        let hInset: CGFloat = 22
+        let top = safeTop + 104
+        let glassReserve: CGFloat = 296 + safeBottom
+        let bottom = max(top + 160, size.height - glassReserve)
+        let availableWidth = size.width - hInset * 2
+        let availableHeight = bottom - top
+
+        var width = availableWidth
+        var height = width / aspect
+        if height > availableHeight {
+            height = availableHeight
+            width = height * aspect
+        }
+
+        let centerX = size.width / 2
+        let centerY = (top + bottom) / 2
+        return CGRect(x: centerX - width / 2, y: centerY - height / 2, width: width, height: height)
     }
 
     // MARK: - Ambient background
@@ -86,7 +175,7 @@ struct ImageDetailView: View {
         )
         .ignoresSafeArea()
         .opacity(visible ? 1 : 0)
-        .animation(Self.ambientSpring, value: visible)
+        .animation(Self.ambientFade, value: visible)
     }
 
     private func crossfadeAmbient(to tile: SampleTile, animated: Bool = true) {
@@ -94,10 +183,10 @@ struct ImageDetailView: View {
         if animated {
             if showAmbientA {
                 ambientB = colors
-                withAnimation(Self.ambientSpring) { showAmbientA = false }
+                withAnimation(Self.ambientFade) { showAmbientA = false }
             } else {
                 ambientA = colors
-                withAnimation(Self.ambientSpring) { showAmbientA = true }
+                withAnimation(Self.ambientFade) { showAmbientA = true }
             }
         } else {
             ambientA = colors
@@ -151,34 +240,6 @@ struct ImageDetailView: View {
                 .background(.white.opacity(0.16), in: Circle())
         }
         .buttonStyle(.plain)
-    }
-
-    // MARK: - Photo
-
-    private func photoStage(tile: SampleTile) -> some View {
-        let effectiveScale = zoomScale * magnifyBy
-        let cornerRadius: CGFloat = expanded ? 18 : 10
-
-        return GeometryReader { geo in
-            tileImage(tile)
-                .frame(width: geo.size.width, height: geo.size.height)
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .matchedGeometryEffect(id: tile.id, in: namespace)
-                .scaleEffect(effectiveScale)
-                .offset(x: zoomOffset.width + pageDrag.width, y: zoomOffset.height)
-                .shadow(color: .black.opacity(0.45), radius: expanded ? 24 : 6, y: 10)
-                .gesture(combinedImageGesture(tile: tile))
-                .frame(width: geo.size.width, height: geo.size.height)
-        }
-        .padding(.horizontal, 22)
-        .padding(.top, 4)
-        .padding(.bottom, 12)
-        .animation(Self.heroSpring, value: expanded)
-    }
-
-    private func tileImage(_ tile: SampleTile) -> some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(tile.gradient)
     }
 
     // MARK: - Glass card
@@ -236,7 +297,6 @@ struct ImageDetailView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(Color.white.opacity(0.28), lineWidth: 1)
         )
-        .animation(Self.panelSpring, value: showGlass)
     }
 
     private func notesBinding(for tile: SampleTile) -> Binding<String> {
@@ -274,7 +334,7 @@ struct ImageDetailView: View {
                 if value.translation.height > 100 || value.predictedEndTranslation.height > 200 {
                     dismiss()
                 } else {
-                    withAnimation(Self.heroSpring) { dismissDrag = .zero }
+                    withAnimation(Self.snapBack) { dismissDrag = .zero }
                 }
             }
 
@@ -294,62 +354,72 @@ struct ImageDetailView: View {
                 } else if value.translation.width > threshold {
                     navigate(by: -1)
                 }
-                withAnimation(Self.heroSpring) { pageDrag = .zero }
+                withAnimation(Self.snapBack) { pageDrag = .zero }
             }
 
         return magnification.simultaneously(with: dismissSwipe).simultaneously(with: pageSwipe)
     }
 
-    // MARK: - Navigation
+    // MARK: - Lifecycle
+
+    /// Open: render one frame at the source rect, then ease `isExpanded` true so the
+    /// image scales up into the destination while the chrome and gallery blur settle
+    /// on one shared curve. Motion blur runs its parabola over the same window.
+    private func open(tile: SampleTile, dest: CGRect, screenHeight: CGFloat) {
+        crossfadeAmbient(to: tile, animated: false)
+        isExpanded = false
+        motionBlur = 0
+        blurPeak = Self.blurPeak(from: sourceFrame, to: dest, screenHeight: screenHeight)
+        withAnimation(Self.transition) {
+            isExpanded = true
+        }
+        runMotionBlurParabola()
+    }
+
+    /// How hard the blur should peak for this trip: center travel plus growth,
+    /// normalized against the screen height and mapped into the min–max range.
+    private static func blurPeak(from source: CGRect, to dest: CGRect, screenHeight: CGFloat) -> CGFloat {
+        let travel = hypot(dest.midX - source.midX, dest.midY - source.midY)
+        let growth = abs(dest.width - source.width)
+        let progress = min((travel + growth) / max(screenHeight, 1), 1)
+        return motionBlurPeakMin + (motionBlurPeakMax - motionBlurPeakMin) * progress
+    }
+
+    /// Drive the hero's blur up to its peak over the first half of the transition,
+    /// then back to zero over the second half — a parabola centered on the moment
+    /// the hero is moving fastest.
+    private func runMotionBlurParabola() {
+        let half = 0.42 / 2
+        withAnimation(.easeIn(duration: half)) {
+            motionBlur = blurPeak
+        } completion: {
+            withAnimation(.easeOut(duration: half)) {
+                motionBlur = 0
+            }
+        }
+    }
+
+    /// Close: the exact inverse. The image eases back to the source cell while the
+    /// chrome and blur clear on the same curve; the completion handler unmounts only
+    /// once it lands, which is also when the canvas reveals the cell — no flicker.
+    private func dismiss() {
+        withAnimation(Self.transition) {
+            isExpanded = false
+            dismissDrag = .zero
+        } completion: {
+            displayedTileID = nil
+        }
+        runMotionBlurParabola()
+    }
 
     private func navigate(by delta: Int) {
         guard let index = currentIndex else { return }
         let next = index + delta
         guard tiles.indices.contains(next) else { return }
 
-        withAnimation(Self.panelSpring) { showGlass = false }
         resetZoom()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            selectedTileID = tiles[next].id
-        }
-    }
-
-    private func dismiss() {
-        withAnimation(Self.panelSpring) { showGlass = false }
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.panelDismissLead) {
-            withAnimation(Self.heroSpring) {
-                expanded = false
-                dismissDrag = .zero
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                selectedTileID = nil
-            }
-        }
-    }
-
-    private func openDetail(tile: SampleTile) {
-        expanded = false
-        showGlass = false
-        crossfadeAmbient(to: tile, animated: false)
-
-        withAnimation(Self.heroSpring) {
-            expanded = true
-        }
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.glassDelay) {
-            withAnimation(Self.panelSpring) {
-                showGlass = true
-            }
-        }
-    }
-
-    private func reopenGlass() {
-        showGlass = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.glassDelay) {
-            withAnimation(Self.panelSpring) {
-                showGlass = true
-            }
+        withAnimation(Self.transition) {
+            displayedTileID = tiles[next].id
         }
     }
 
@@ -358,11 +428,6 @@ struct ImageDetailView: View {
         zoomOffset = .zero
         dismissDrag = .zero
         pageDrag = .zero
-    }
-
-    private var dismissOpacity: Double {
-        let progress = min(abs(dismissDrag.height) / 300, 1)
-        return 1 - progress * 0.35
     }
 }
 

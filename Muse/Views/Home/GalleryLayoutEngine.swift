@@ -97,8 +97,11 @@ enum GalleryLayoutEngine {
     private static func bentoLayout(tiles: [SampleTile], viewport: CGSize) -> GalleryLayout {
         let padding: CGFloat = 16
         let gap: CGFloat = 10
+        // Clearance for the "Your inspiration" header, which overlays the canvas
+        // rather than insetting it (so mode morphs never resize mid-flight).
+        let topInset: CGFloat = 112
         let columnWidth = (viewport.width - padding * 2 - gap) / 2
-        var columnBottoms: [CGFloat] = [padding, padding]
+        var columnBottoms: [CGFloat] = [topInset, topInset]
 
         var placements: [Int: TilePlacement] = [:]
         for tile in tiles {

@@ -3,9 +3,17 @@ import SwiftUI
 struct HomeView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
     @State private var layoutMode: GalleryLayoutMode = .vast
-    @State private var selectedTileID: Int?
+    /// Which tile the detail overlay owns: drives the mount and hides that cell in
+    /// the canvas. Set on open, cleared only once the hero finishes flying home.
+    @State private var displayedTileID: Int?
+    /// The visual open/close state. Everything — hero, gallery blur, scrim — reads
+    /// this single flag inside one `withAnimation`, so they move as one motion.
+    @State private var isExpanded = false
+    /// Exact on-screen rect of the tapped cell — the hero scales up from here.
+    @State private var sourceFrame: CGRect = .zero
     @State private var tileNotes: [Int: String] = [:]
-    @Namespace private var detailNamespace
+    @StateObject private var tuning = MorphTuning()
+    @State private var showTuningPanel = false
 
     var body: some View {
         NavigationStack {
@@ -16,70 +24,97 @@ struct HomeView: View {
                     emptyState
                 }
             }
+            .blur(radius: isExpanded ? 18 : 0)
+            .scaleEffect(isExpanded ? 0.96 : 1)
+            .animation(ImageDetailView.transition, value: isExpanded)
             .background(MuseTheme.Semantic.surfacePage.ignoresSafeArea())
-            .toolbarBackground(MuseTheme.Semantic.surfacePage, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar(selectedTileID == nil ? .visible : .hidden, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("Muse")
-                        .font(MuseTheme.serif(22))
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        Task { await authViewModel.signOut() }
-                    } label: {
-                        Image(systemName: "person.circle")
-                            .font(.system(size: 18))
-                            .foregroundStyle(MuseTheme.Semantic.iconDefault)
-                    }
-                }
-            }
+            // No top chrome: the gallery owns the full screen, and the nav bar
+            // can't reappear mid-dismiss and shove the layout down.
+            .toolbar(.hidden, for: .navigationBar)
         }
         .overlay {
-            if selectedTileID != nil {
+            Color.black
+                .opacity(isExpanded ? 0.5 : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(displayedTileID != nil)
+                .animation(ImageDetailView.transition, value: isExpanded)
+        }
+        .overlay {
+            if displayedTileID != nil {
                 ImageDetailView(
                     tiles: SampleTile.samples,
-                    selectedTileID: $selectedTileID,
-                    tileNotes: $tileNotes,
-                    namespace: detailNamespace
+                    sourceFrame: sourceFrame,
+                    displayedTileID: $displayedTileID,
+                    isExpanded: $isExpanded,
+                    tileNotes: $tileNotes
                 )
-                .transition(.opacity)
             }
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedTileID)
+    }
+
+    /// Commit a tap: remember the cell's exact rect and mount the overlay. The
+    /// detail view flips `isExpanded` true on appear, so the hero scales up and
+    /// the gallery blur/scrim fade in on that one shared transaction.
+    private func openTile(_ id: Int, _ frame: CGRect) {
+        sourceFrame = frame
+        displayedTileID = id
     }
 
     private var galleryContent: some View {
         ZStack(alignment: .bottom) {
             GalleryCanvasView(
                 mode: $layoutMode,
-                selectedTileID: $selectedTileID,
+                // Bound to displayedTileID: the cell stays hidden until the hero
+                // finishes flying home, then reappears with no flicker.
+                selectedTileID: $displayedTileID,
                 tiles: SampleTile.samples,
-                detailNamespace: detailNamespace
+                onSelectTile: openTile,
+                tuning: tuning
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .safeAreaInset(edge: .top, spacing: 0) {
-                if layoutMode != .vast {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text("Your inspiration")
-                            .font(MuseTheme.serif(28))
-                            .padding(.horizontal, 20)
+            // The header is an overlay, never a safe-area inset: it must not
+            // resize the canvas when modes change, or the in-flight morph gets
+            // re-laid-out mid-animation and every tile snaps and re-targets.
+            // The bento layout reserves top space for it in the layout engine.
+            .overlay(alignment: .top) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Your inspiration")
+                        .font(MuseTheme.serif(28))
+                        .padding(.horizontal, 20)
 
-                        sampleTagRow
-                    }
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(MuseTheme.Semantic.surfacePage)
+                    sampleTagRow
                 }
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(MuseTheme.Semantic.surfacePage)
+                .opacity(layoutMode == .bento ? 1 : 0)
+                .allowsHitTesting(layoutMode == .bento)
+                .animation(.easeInOut(duration: 0.3), value: layoutMode)
             }
 
-            if selectedTileID == nil {
-                GalleryModeToggle(mode: $layoutMode)
-                    .padding(.bottom, 12)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            if displayedTileID == nil {
+                HStack(spacing: 10) {
+                    GalleryModeToggle(mode: $layoutMode)
+
+                    Button {
+                        showTuningPanel = true
+                    } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(MuseTheme.Semantic.iconDefault)
+                            .frame(width: 36, height: 36)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                }
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+        }
+        .sheet(isPresented: $showTuningPanel) {
+            MorphTuningPanel(tuning: tuning)
+                .presentationDetents([.medium, .large])
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
     }
 
