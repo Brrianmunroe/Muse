@@ -20,6 +20,10 @@ struct MuseImageDetailView: View {
     private static let motionBlurPeakMax: CGFloat = 6
     /// Gentle fixed blur for the photo-to-photo slide.
     private static let pageBlurPeak: CGFloat = 2.5
+    // Parallax + frost chrome choreography for the photo-to-photo swipe.
+    private static let frostIn = Animation.easeIn(duration: 0.16)
+    private static let chromeClear = Animation.easeOut(duration: 0.34)
+    private static let cardFrostBlur: CGFloat = 4
 
     @State private var ambientA = AmbientGradientColors.fallback
     @State private var ambientB = AmbientGradientColors.fallback
@@ -38,7 +42,15 @@ struct MuseImageDetailView: View {
     @State private var slideDirection = 1
     @State private var incomingImage: LocalMuseImage?
     @State private var isSliding = false
-    @State private var infoOpacity: Double = 1
+    // Parallax + frost: the card and top bar trail the photo at half speed while
+    // frosting over; their content swaps under peak frost and fades back in.
+    @State private var chromeFrost: CGFloat = 0
+    @State private var cardContentID: Int?
+    @State private var incomingAmbient: AmbientGradientColors?
+    @State private var ambientProgress: Double = 0
+    /// Locked once at gesture start so a single drag stays horizontal or vertical
+    /// instead of flickering between page-swipe and dismiss near the diagonal.
+    @State private var dragAxis: Axis?
 
     private var currentImage: LocalMuseImage? {
         guard let id = displayedTileID else { return nil }
@@ -50,9 +62,33 @@ struct MuseImageDetailView: View {
         return images.firstIndex { $0.intID == id }
     }
 
+    /// The image whose metadata the card and counter show. During a swipe this
+    /// flips to the incoming image at the frost peak, so the new content fades
+    /// in as the chrome clears instead of popping on landing.
+    private var cardImage: LocalMuseImage? {
+        guard let id = cardContentID,
+              let match = images.first(where: { $0.intID == id }) else { return currentImage }
+        return match
+    }
+
+    /// 0 at rest → 1 at a full dismiss pull. Drives the shrink, dim and chrome exit.
+    private var dismissProgress: CGFloat {
+        min(abs(dismissDrag.height) / 320, 1)
+    }
+
+    /// Ambient background dims as the sheet is pulled away.
     private var dragOpacity: Double {
-        let progress = min(abs(dismissDrag.height) / 320, 1)
-        return 1 - progress * 0.5
+        1 - Double(dismissProgress) * 0.5
+    }
+
+    /// Whole sheet shrinks slightly as you pull — the iOS Photos "let go" feel.
+    private var dismissScale: CGFloat {
+        1 - dismissProgress * 0.12
+    }
+
+    /// Chrome (top bar + info card) rides the pull out fully, rather than a flat fade.
+    private var chromeOpacity: Double {
+        isExpanded ? Double(1 - dismissProgress) : 0
     }
 
     var body: some View {
@@ -69,28 +105,42 @@ struct MuseImageDetailView: View {
                     Group {
                         ambientLayer(colors: ambientA, visible: showAmbientA)
                         ambientLayer(colors: ambientB, visible: !showAmbientA)
+                        // Incoming photo's glow, dissolving in under the thumb.
+                        if let incoming = incomingAmbient {
+                            LinearGradient(
+                                colors: [incoming.top, incoming.bottom],
+                                startPoint: UnitPoint(x: 0.35, y: 0),
+                                endPoint: UnitPoint(x: 0.65, y: 1)
+                            )
+                            .ignoresSafeArea()
+                            .opacity(ambientProgress)
+                        }
                     }
                     .opacity(isExpanded ? dragOpacity : 0)
 
                     ZStack {
                         VStack(spacing: 0) {
                             topBar(width: geo.size.width)
-                                .opacity(isExpanded ? dragOpacity * infoOpacity : 0)
+                                .opacity(chromeOpacity)
+                                // Static during swipes — only moves on open/dismiss.
+                                .offset(y: (isExpanded ? 0 : -52) - dismissProgress * 36)
                             Spacer(minLength: 0)
                         }
 
                         VStack(spacing: 0) {
                             Spacer(minLength: 0)
-                            glassCard(image: image)
+                            glassCard(image: cardImage ?? image)
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, max(16, geo.safeAreaInsets.bottom + 8))
-                                .opacity(isExpanded ? dragOpacity * infoOpacity : 0)
-                                .offset(y: isExpanded ? 0 : 24)
+                                .opacity(chromeOpacity)
+                                // Container stays put; only its content frosts/fades.
+                                .offset(y: (isExpanded ? 0 : 52) + dismissProgress * 36)
                         }
 
                         heroPager(current: image, dest: dest, geo: geo)
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
+                    .scaleEffect(dismissScale)
                     .offset(y: dismissDrag.height)
                 }
                 .onAppear {
@@ -126,6 +176,11 @@ struct MuseImageDetailView: View {
             }
         }
         .blur(radius: motionBlur)
+        // Page swipe lives on the stationary pager (not the moving photo) so the
+        // gesture reads translation in a fixed coordinate space — no jitter.
+        // simultaneousGesture so it co-exists with the photo's zoom/dismiss.
+        .contentShape(Rectangle())
+        .simultaneousGesture(pageSwipeGesture(width: geo.size.width))
     }
 
     private func heroCard(image: LocalMuseImage, frame: CGRect, radius: CGFloat) -> some View {
@@ -190,12 +245,15 @@ struct MuseImageDetailView: View {
         .animation(Self.ambientFade, value: visible)
     }
 
-    private func crossfadeAmbient(to image: LocalMuseImage, animated: Bool = true) {
+    private func ambientColors(for image: LocalMuseImage) -> AmbientGradientColors {
         let thumbImage = image.thumbnailPath.flatMap {
             ImageCache.thumbnail(for: $0)
         } ?? UIImage(contentsOfFile: LocalImageStore.url(for: image.localPath).path)
+        return thumbImage.flatMap { AmbientGradientEngine.colors(from: $0) } ?? .fallback
+    }
 
-        let colors = thumbImage.flatMap { AmbientGradientEngine.colors(from: $0) } ?? .fallback
+    private func crossfadeAmbient(to image: LocalMuseImage, animated: Bool = true) {
+        let colors = ambientColors(for: image)
 
         if animated {
             if showAmbientA {
@@ -215,37 +273,19 @@ struct MuseImageDetailView: View {
 
     private func topBar(width: CGFloat) -> some View {
         HStack {
-            glassIconButton(systemName: "chevron.left") { navigate(by: -1, width: width) }
-                .opacity(canNavigateBackward ? 1 : 0.35)
-                .disabled(!canNavigateBackward)
-
+            // Single back button — returns to the gallery, same as the swipe-down.
+            glassIconButton(systemName: "chevron.left") { dismiss() }
             Spacer()
-
-            if let index = currentIndex {
-                Text("\(index + 1) of \(images.count)")
-                    .font(.system(size: 13, weight: .medium))
-                    .tracking(1.2)
-                    .foregroundStyle(Self.glassForeground.opacity(0.75))
-            }
-
-            Spacer()
-
-            glassIconButton(systemName: "xmark") { dismiss() }
         }
         .padding(.horizontal, 20)
         .padding(.top, 60)
         .padding(.bottom, 8)
     }
 
-    private var canNavigateBackward: Bool {
-        guard let index = currentIndex else { return false }
-        return index > 0
-    }
-
     private func glassIconButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: systemName == "xmark" ? 12 : 14, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Self.glassForeground)
                 .frame(width: 34, height: 34)
                 .background(.white.opacity(0.16), in: Circle())
@@ -274,6 +314,27 @@ struct MuseImageDetailView: View {
             }
 
             VStack(alignment: .leading, spacing: 5) {
+                Text("Description")
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(1)
+                    .textCase(.uppercase)
+                    .foregroundStyle(Self.glassForeground.opacity(0.65))
+
+                if let description = image.aiDescription {
+                    Text(description)
+                        .font(MuseTheme.serif(18))
+                        .lineSpacing(3)
+                        .foregroundStyle(Self.glassForeground)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("Analyzing…")
+                        .font(MuseTheme.serif(18))
+                        .foregroundStyle(Self.glassForeground.opacity(0.45))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
                 Text("Your notes")
                     .font(.system(size: 10, weight: .semibold))
                     .tracking(1)
@@ -298,6 +359,10 @@ struct MuseImageDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Content frosts and fades to near-zero at the swipe midpoint, swaps,
+        // then sharpens back in — the glass container behind it stays put.
+        .blur(radius: chromeFrost * Self.cardFrostBlur)
+        .opacity(1 - Double(chromeFrost) * 0.95)
         .background {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -326,6 +391,14 @@ struct MuseImageDetailView: View {
 
     // MARK: - Gestures
 
+    /// Locks the drag to one axis on the first movement so a single gesture can't
+    /// flicker between the page swipe and the dismiss swipe near the diagonal.
+    private func lockAxis(_ translation: CGSize) {
+        guard dragAxis == nil else { return }
+        dragAxis = abs(translation.width) > abs(translation.height) ? .horizontal : .vertical
+    }
+
+    /// Zoom + swipe-to-dismiss; stays on the photo itself.
     private func combinedImageGesture(image: LocalMuseImage, width: CGFloat) -> some Gesture {
         let magnification = MagnificationGesture()
             .updating($magnifyBy) { value, state, _ in state = value }
@@ -334,37 +407,64 @@ struct MuseImageDetailView: View {
                 if zoomScale <= 1.05 { zoomScale = 1; zoomOffset = .zero }
             }
 
-        let dismissSwipe = DragGesture(minimumDistance: 20)
+        // Global coordinate space: translation is measured against the screen, not
+        // the sheet that's moving under the thumb — that feedback was the jitter.
+        let dismissSwipe = DragGesture(minimumDistance: 8, coordinateSpace: .global)
             .onChanged { value in
-                guard zoomScale <= 1.05, !isSliding,
-                      abs(value.translation.height) > abs(value.translation.width) else { return }
+                guard zoomScale <= 1.05, !isSliding else { return }
+                lockAxis(value.translation)
+                guard dragAxis == .vertical else { return }
                 dismissDrag = value.translation
             }
             .onEnded { value in
-                guard zoomScale <= 1.05 else { dismissDrag = .zero; return }
-                if value.translation.height > 100 || value.predictedEndTranslation.height > 200 {
+                defer { resetDragAxis() }
+                guard zoomScale <= 1.05, dragAxis == .vertical else { dismissDrag = .zero; return }
+                let v = value.velocity.height
+                if value.translation.height > 120 || v > 700 {
                     dismiss()
                 } else {
-                    withAnimation(Self.snapBack) { dismissDrag = .zero }
+                    springDismissBack(velocity: v)
                 }
             }
 
-        let pageSwipe = DragGesture(minimumDistance: 30)
+        return magnification.simultaneously(with: dismissSwipe)
+    }
+
+    /// Cancelled dismiss: spring the sheet back to rest carrying the release speed.
+    private func springDismissBack(velocity: CGFloat) {
+        let remaining = -dismissDrag.height
+        let initialV = remaining == 0 ? 0 : Double(velocity / remaining)
+        withAnimation(.interpolatingSpring(stiffness: 300, damping: 30, initialVelocity: initialV)) {
+            dismissDrag = .zero
+        }
+    }
+
+    /// Clears the locked axis *after* the current run-loop turn, so the page and
+    /// dismiss gestures (which both fire `onEnded` for one drag) each still read
+    /// the locked axis regardless of which handler runs first.
+    private func resetDragAxis() {
+        DispatchQueue.main.async { dragAxis = nil }
+    }
+
+    /// Interactive filmstrip pan: tracks the thumb 1:1 and hands the release
+    /// velocity to `finishSlide` so the spring continues at the flick's speed.
+    private func pageSwipeGesture(width: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
-                guard zoomScale <= 1.05, !isSliding,
-                      abs(value.translation.width) > abs(value.translation.height) else { return }
+                guard zoomScale <= 1.05, !isSliding else { return }
+                lockAxis(value.translation)
+                guard dragAxis == .horizontal else { return }
                 updateSlide(translation: value.translation.width, width: width)
             }
             .onEnded { value in
-                guard zoomScale <= 1.05, !isSliding else { return }
+                defer { resetDragAxis() }
+                guard zoomScale <= 1.05, !isSliding, dragAxis == .horizontal else { return }
                 finishSlide(
                     translation: value.translation.width,
-                    predicted: value.predictedEndTranslation.width,
+                    velocity: value.velocity.width,
                     width: width
                 )
             }
-
-        return magnification.simultaneously(with: dismissSwipe).simultaneously(with: pageSwipe)
     }
 
     // MARK: - Page slide
@@ -376,55 +476,111 @@ struct MuseImageDetailView: View {
         return images[next]
     }
 
+    private func setIncoming(_ image: LocalMuseImage, direction: Int) {
+        incomingImage = image
+        slideDirection = direction
+        incomingAmbient = ambientColors(for: image)
+        loadHeroImage(for: image)
+    }
+
     private func updateSlide(translation: CGFloat, width: CGFloat) {
         let direction = translation < 0 ? 1 : -1
         if let next = neighbor(inDirection: direction) {
             if incomingImage?.intID != next.intID {
-                incomingImage = next
-                slideDirection = direction
-                loadHeroImage(for: next)
+                setIncoming(next, direction: direction)
             }
             slideOffset = translation
-            infoOpacity = max(0.35, 1 - Double(abs(translation) / max(width, 1)) * 0.65)
+            let p = min(abs(translation) / max(width, 1), 1)
+            chromeFrost = min(2 * min(p, 1 - p), 1)
+            ambientProgress = Double(p)
+            // The card's content swaps to the incoming photo under peak frost, so
+            // the new tags/notes fade in as the frost clears.
+            cardContentID = p <= 0.5 ? currentImage?.intID : next.intID
         } else {
             incomingImage = nil
+            incomingAmbient = nil
             slideOffset = translation * 0.25
+            let p = min(abs(slideOffset) / max(width, 1), 1)
+            chromeFrost = min(2 * min(p, 1 - p), 1)
         }
     }
 
-    private func finishSlide(translation: CGFloat, predicted: CGFloat, width: CGFloat) {
+    /// Decides commit-vs-cancel from how far the thumb travelled *and* how fast it
+    /// was moving at release, then springs to the chosen target carrying that
+    /// velocity so the motion feels continuous with the flick.
+    private func finishSlide(translation: CGFloat, velocity: CGFloat, width: CGFloat) {
         let direction = translation < 0 ? 1 : -1
+        let flungEnough = abs(translation) > width * 0.3 || abs(velocity) > 500
         guard let target = incomingImage,
               neighbor(inDirection: direction)?.intID == target.intID,
-              abs(translation) > 60 || abs(predicted) > 160 else {
-            withAnimation(Self.snapBack) {
-                slideOffset = 0
-                infoOpacity = 1
-            } completion: {
+              flungEnough else {
+            // Cancel: spring back to the current photo, inheriting release velocity.
+            cardContentID = currentImage?.intID
+            springSlide(to: 0, velocity: velocity) {
                 incomingImage = nil
+                incomingAmbient = nil
+            }
+            withAnimation(Self.chromeClear) {
+                chromeFrost = 0
+                ambientProgress = 0
             }
             return
         }
-        commitSlide(to: target, direction: direction, width: width)
+        commitSlide(to: target, direction: direction, width: width, velocity: velocity)
     }
 
-    /// Completes the filmstrip move: both photos slide together, motion blur
-    /// pulses, the ambient gradient crossfades, and the info card dips out and
-    /// back in — one motion shared by drag-flings and chevron taps.
-    private func commitSlide(to target: LocalMuseImage, direction: Int, width: CGFloat) {
-        isSliding = true
-        crossfadeAmbient(to: target)
-        runMotionBlurParabola(peak: Self.pageBlurPeak)
-        withAnimation(.easeOut(duration: 0.15)) { infoOpacity = 0 }
-        withAnimation(Self.transition) {
-            slideOffset = CGFloat(-direction) * width
+    /// Springs `slideOffset` to `target` launching at the thumb's release speed.
+    /// `interpolatingSpring`'s `initialVelocity` is a fraction of the remaining
+    /// distance per second, so we normalise the point/sec velocity by the distance.
+    private func springSlide(to target: CGFloat, velocity: CGFloat, completion: @escaping () -> Void) {
+        let remaining = target - slideOffset
+        let initialV = remaining == 0 ? 0 : Double(velocity / remaining)
+        // Soft, just-over-critically-damped glide — no overshoot, no snap.
+        withAnimation(.interpolatingSpring(stiffness: 110, damping: 22, initialVelocity: initialV)) {
+            slideOffset = target
         } completion: {
+            completion()
+        }
+    }
+
+    /// Completes the filmstrip move: both photos spring together at the release
+    /// velocity, the ambient glow finishes its thumb-driven dissolve, and the
+    /// chrome frosts to a peak, swaps content underneath, then trails in from
+    /// the incoming side and fades clear — shared by drag-flings and chevrons.
+    private func commitSlide(to target: LocalMuseImage, direction: Int, width: CGFloat, velocity: CGFloat = 0) {
+        isSliding = true
+        // Only fast flings streak; gentle swipes stay crisp.
+        let blurPeak = min(Self.pageBlurPeak, abs(velocity) / 600 * Self.pageBlurPeak)
+        if blurPeak > 0.05 { runMotionBlurParabola(peak: blurPeak) }
+
+        springSlide(to: CGFloat(-direction) * width, velocity: velocity) {
             displayedTileID = target.intID
             slideOffset = 0
             incomingImage = nil
+            if let colors = incomingAmbient {
+                ambientA = colors
+                showAmbientA = true
+            } else {
+                crossfadeAmbient(to: target, animated: false)
+            }
+            incomingAmbient = nil
+            ambientProgress = 0
             resetZoom()
             isSliding = false
-            withAnimation(.easeOut(duration: 0.25)) { infoOpacity = 1 }
+        }
+        withAnimation(.easeOut(duration: 0.4)) { ambientProgress = 1 }
+
+        // Skip the frost-in when the drag already crossed the midpoint — the
+        // content swapped under the finger's own frost.
+        if cardContentID != target.intID {
+            withAnimation(Self.frostIn) {
+                chromeFrost = 1
+            } completion: {
+                cardContentID = target.intID
+                withAnimation(Self.chromeClear) { chromeFrost = 0 }
+            }
+        } else {
+            withAnimation(Self.chromeClear) { chromeFrost = 0 }
         }
     }
 
@@ -450,6 +606,9 @@ struct MuseImageDetailView: View {
 
     private func open(image: LocalMuseImage, dest: CGRect, screenHeight: CGFloat) {
         loadHeroImage(for: image)
+        // Analyze images that haven't been described yet (failed earlier, or
+        // predate the feature) when they're first opened.
+        ImageAnalysisService.analyzeIfNeeded(image, context: modelContext)
         crossfadeAmbient(to: image, animated: false)
         isExpanded = false
         motionBlur = 0
@@ -484,14 +643,6 @@ struct MuseImageDetailView: View {
             displayedTileID = nil
         }
         runMotionBlurParabola(peak: blurPeak)
-    }
-
-    private func navigate(by delta: Int, width: CGFloat) {
-        guard !isSliding, let target = neighbor(inDirection: delta) else { return }
-        incomingImage = target
-        slideDirection = delta
-        loadHeroImage(for: target)
-        commitSlide(to: target, direction: delta, width: width)
     }
 
     private func resetZoom() {

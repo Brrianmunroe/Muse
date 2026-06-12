@@ -70,6 +70,8 @@ struct HomeView: View {
                             height: paths.height
                         )
                         modelContext.insert(record)
+                        // Kick off the AI design description + tags in the background.
+                        ImageAnalysisService.analyzeIfNeeded(record, context: modelContext)
                     }
                     try? modelContext.save()
                 }

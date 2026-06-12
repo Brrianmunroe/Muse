@@ -32,6 +32,7 @@
 		B16B5F71C7EB8060C157CE7D /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDCDB6CC1B08BF6AB06AF2F0 /* HomeView.swift */; };
 		B1C18A55CA8E603A32A2845B /* SupabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81540F8F24A440BDCDF7C3C /* SupabaseService.swift */; };
 		B1FD2E9BBA3F5C1A30212716 /* StorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899DD77D9CDEFA9AE46CF60E /* StorageService.swift */; };
+		AB12CD34EF56AB78CD90EF12 /* ImageAnalysisService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12EF90CD78AB56EF34CD12AB /* ImageAnalysisService.swift */; };
 		B37051CD5F4E0F778A9FD828 /* GalleryCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81291941C6720287B4C401EA /* GalleryCanvasView.swift */; };
 		CEAEB099C8C41F3CBEC58AD8 /* ImageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC4E1D6041472BC66D06136A /* ImageService.swift */; };
 		D9EFCC4FF8EE70158C6AFAB2 /* AmbientGradientEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88C4E93B61B544B80AEFAF7 /* AmbientGradientEngine.swift */; };
@@ -57,6 +58,7 @@
 		7EB4E4C6FF84C93FC42F6D6C /* GalleryLayoutEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryLayoutEngine.swift; sourceTree = "<group>"; };
 		81291941C6720287B4C401EA /* GalleryCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCanvasView.swift; sourceTree = "<group>"; };
 		899DD77D9CDEFA9AE46CF60E /* StorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageService.swift; sourceTree = "<group>"; };
+		12EF90CD78AB56EF34CD12AB /* ImageAnalysisService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAnalysisService.swift; sourceTree = "<group>"; };
 		8EC8FCD14F9C7F900DDF3F6E /* MuseImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MuseImage.swift; sourceTree = "<group>"; };
 		9DD8D4CA8D6A7832A3DB9238 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		A1F2E3D4C5B6A79880011002 /* MorphTuning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorphTuning.swift; sourceTree = "<group>"; };
@@ -166,6 +168,7 @@
 				C3EA4A9F6378856B58BC6CC8 /* AuthService.swift */,
 				EC4E1D6041472BC66D06136A /* ImageService.swift */,
 				899DD77D9CDEFA9AE46CF60E /* StorageService.swift */,
+				12EF90CD78AB56EF34CD12AB /* ImageAnalysisService.swift */,
 				B81540F8F24A440BDCDF7C3C /* SupabaseService.swift */,
 			);
 			path = Services;
@@ -358,6 +361,7 @@
 				A0E685AE976926DE92960008 /* RootView.swift in Sources */,
 				F9D34744E190BD093A9475F9 /* SignInView.swift in Sources */,
 				B1FD2E9BBA3F5C1A30212716 /* StorageService.swift in Sources */,
+				AB12CD34EF56AB78CD90EF12 /* ImageAnalysisService.swift in Sources */,
 				B1C18A55CA8E603A32A2845B /* SupabaseService.swift in Sources */,
 				7FBD4BB3EFBA304E45B471FB /* Tag.swift in Sources */,
 				539C43661893DEFD4D9F50FD /* TagChip.swift in Sources */,

@@ -28,3 +28,6 @@ Secrets.xcconfig
 **/Config/Secrets.xcconfig
 *.xcconfig.local
 GoogleService-Info.plist
+
+# Supabase CLI local scratch
+supabase/.temp/

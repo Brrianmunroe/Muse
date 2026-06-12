@@ -37,6 +37,10 @@ struct ImageDetailView: View {
     /// barely blurs at all.
     private static let motionBlurPeakMin: CGFloat = 1.5
     private static let motionBlurPeakMax: CGFloat = 6
+    // Parallax + frost chrome choreography for the photo-to-photo swipe.
+    private static let frostIn = Animation.easeIn(duration: 0.16)
+    private static let chromeClear = Animation.easeOut(duration: 0.34)
+    private static let cardFrostBlur: CGFloat = 4
 
     @State private var ambientA = AmbientGradientColors.fallback
     @State private var ambientB = AmbientGradientColors.fallback
@@ -49,6 +53,12 @@ struct ImageDetailView: View {
     @State private var zoomOffset: CGSize = .zero
     @State private var dismissDrag: CGSize = .zero
     @State private var pageDrag: CGSize = .zero
+    /// Locked once at gesture start so one drag stays horizontal (page) or
+    /// vertical (dismiss) instead of flickering between them near the diagonal.
+    @State private var dragAxis: Axis?
+    // Parallax + frost: the card and top bar trail the photo at half speed while
+    // frosting over; their content swaps under peak frost and fades back in.
+    @State private var chromeFrost: CGFloat = 0
     @GestureState private var magnifyBy: CGFloat = 1
 
     private var currentTile: SampleTile? {
@@ -61,10 +71,24 @@ struct ImageDetailView: View {
         return tiles.firstIndex { $0.id == id }
     }
 
-    /// Drag-to-dismiss progress softens the whole sheet as the user pulls down.
+    /// 0 at rest → 1 at a full dismiss pull. Drives the shrink, dim and chrome exit.
+    private var dismissProgress: CGFloat {
+        min(abs(dismissDrag.height) / 320, 1)
+    }
+
+    /// Ambient background dims as the user pulls the sheet away.
     private var dragOpacity: Double {
-        let progress = min(abs(dismissDrag.height) / 320, 1)
-        return 1 - progress * 0.5
+        1 - Double(dismissProgress) * 0.5
+    }
+
+    /// Whole sheet shrinks slightly as you pull — the iOS Photos "let go" feel.
+    private var dismissScale: CGFloat {
+        1 - dismissProgress * 0.12
+    }
+
+    /// Chrome rides the pull out fully, rather than a flat fade.
+    private var chromeOpacity: Double {
+        isExpanded ? Double(1 - dismissProgress) : 0
     }
 
     var body: some View {
@@ -88,7 +112,9 @@ struct ImageDetailView: View {
                     ZStack {
                         VStack(spacing: 0) {
                             topBar
-                                .opacity(isExpanded ? dragOpacity : 0)
+                                .opacity(chromeOpacity)
+                                // Static during swipes — only moves on open/dismiss.
+                                .offset(y: (isExpanded ? 0 : -52) - dismissProgress * 36)
                             Spacer(minLength: 0)
                         }
 
@@ -97,13 +123,15 @@ struct ImageDetailView: View {
                             glassCard(tile: tile)
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, max(16, geo.safeAreaInsets.bottom + 8))
-                                .opacity(isExpanded ? dragOpacity : 0)
-                                .offset(y: isExpanded ? 0 : 24)
+                                .opacity(chromeOpacity)
+                                // Container stays put; only its content frosts/fades.
+                                .offset(y: (isExpanded ? 0 : 52) + dismissProgress * 36)
                         }
 
-                        heroImage(tile: tile, dest: dest)
+                        heroImage(tile: tile, dest: dest, width: geo.size.width)
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
+                    .scaleEffect(dismissScale)
                     .offset(y: dismissDrag.height)
                 }
                 .onAppear {
@@ -127,7 +155,7 @@ struct ImageDetailView: View {
     /// The shared element. Its frame, center and corner radius interpolate between
     /// `sourceFrame` (the cell) and `dest` (the expanded slot) as `isExpanded` flips,
     /// so it scales up from exactly where the user tapped.
-    private func heroImage(tile: SampleTile, dest: CGRect) -> some View {
+    private func heroImage(tile: SampleTile, dest: CGRect, width: CGFloat) -> some View {
         let frame = isExpanded ? dest : sourceFrame
         let radius = isExpanded ? Self.heroRadius : Self.cellRadius
         let effectiveScale = zoomScale * magnifyBy
@@ -140,7 +168,7 @@ struct ImageDetailView: View {
             .blur(radius: motionBlur)
             .offset(x: zoomOffset.width + pageDrag.width, y: zoomOffset.height)
             .position(x: frame.midX, y: frame.midY)
-            .gesture(combinedImageGesture(tile: tile))
+            .gesture(combinedImageGesture(tile: tile, width: width))
     }
 
     /// Fit the tile's aspect ratio into the area between the top bar and the
@@ -200,41 +228,19 @@ struct ImageDetailView: View {
 
     private var topBar: some View {
         HStack {
-            glassIconButton(systemName: "chevron.left") {
-                navigate(by: -1)
-            }
-            .opacity(canNavigateBackward ? 1 : 0.35)
-            .disabled(!canNavigateBackward)
-
+            // Single back button — returns to the gallery, same as the swipe-down.
+            glassIconButton(systemName: "chevron.left") { dismiss() }
             Spacer()
-
-            if let index = currentIndex {
-                Text("\(index + 1) of \(tiles.count)")
-                    .font(.system(size: 13, weight: .medium))
-                    .tracking(1.2)
-                    .foregroundStyle(Self.glassForeground.opacity(0.75))
-            }
-
-            Spacer()
-
-            glassIconButton(systemName: "xmark") {
-                dismiss()
-            }
         }
         .padding(.horizontal, 20)
         .padding(.top, Self.topBarPadding)
         .padding(.bottom, 8)
     }
 
-    private var canNavigateBackward: Bool {
-        guard let index = currentIndex else { return false }
-        return index > 0
-    }
-
     private func glassIconButton(systemName: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: systemName == "xmark" ? 12 : 14, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(Self.glassForeground)
                 .frame(width: 34, height: 34)
                 .background(.white.opacity(0.16), in: Circle())
@@ -288,6 +294,10 @@ struct ImageDetailView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Content frosts and fades to near-zero at the swipe midpoint, swaps,
+        // then sharpens back in — the glass container behind it stays put.
+        .blur(radius: chromeFrost * Self.cardFrostBlur)
+        .opacity(1 - Double(chromeFrost) * 0.95)
         .background {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(.ultraThinMaterial)
@@ -308,7 +318,7 @@ struct ImageDetailView: View {
 
     // MARK: - Gestures
 
-    private func combinedImageGesture(tile: SampleTile) -> some Gesture {
+    private func combinedImageGesture(tile: SampleTile, width: CGFloat) -> some Gesture {
         let magnification = MagnificationGesture()
             .updating($magnifyBy) { value, state, _ in
                 state = value
@@ -321,43 +331,88 @@ struct ImageDetailView: View {
                 }
             }
 
-        let dismissSwipe = DragGesture(minimumDistance: 20)
+        // Global coordinate space: translation is measured against the screen, not
+        // the sheet moving under the thumb — that feedback was the jitter.
+        let dismissSwipe = DragGesture(minimumDistance: 8, coordinateSpace: .global)
             .onChanged { value in
-                guard zoomScale <= 1.05, abs(value.translation.height) > abs(value.translation.width) else { return }
+                guard zoomScale <= 1.05 else { return }
+                lockAxis(value.translation)
+                guard dragAxis == .vertical else { return }
                 dismissDrag = value.translation
             }
             .onEnded { value in
-                guard zoomScale <= 1.05 else {
+                defer { resetDragAxis() }
+                guard zoomScale <= 1.05, dragAxis == .vertical else {
                     dismissDrag = .zero
                     return
                 }
-                if value.translation.height > 100 || value.predictedEndTranslation.height > 200 {
+                let v = value.velocity.height
+                if value.translation.height > 120 || v > 700 {
                     dismiss()
                 } else {
-                    withAnimation(Self.snapBack) { dismissDrag = .zero }
+                    springDismissBack(velocity: v)
                 }
             }
 
-        let pageSwipe = DragGesture(minimumDistance: 30)
+        // Tracks the thumb from the first pixel; release velocity decides whether
+        // to advance or spring back, and the spring inherits that velocity.
+        let pageSwipe = DragGesture(minimumDistance: 1, coordinateSpace: .global)
             .onChanged { value in
-                guard zoomScale <= 1.05, abs(value.translation.width) > abs(value.translation.height) else { return }
+                guard zoomScale <= 1.05 else { return }
+                lockAxis(value.translation)
+                guard dragAxis == .horizontal else { return }
                 pageDrag = value.translation
+                let p = min(abs(value.translation.width) / max(width, 1), 1)
+                chromeFrost = min(2 * min(p, 1 - p), 1)
             }
             .onEnded { value in
-                guard zoomScale <= 1.05 else {
+                defer { resetDragAxis() }
+                guard zoomScale <= 1.05, dragAxis == .horizontal else {
                     pageDrag = .zero
                     return
                 }
-                let threshold: CGFloat = 60
-                if value.translation.width < -threshold {
-                    navigate(by: 1)
-                } else if value.translation.width > threshold {
-                    navigate(by: -1)
-                }
-                withAnimation(Self.snapBack) { pageDrag = .zero }
+                let t = value.translation.width
+                let v = value.velocity.width
+                let flung = abs(t) > 80 || abs(v) > 500
+                springPageDragBack(velocity: v)
+                if flung, t < 0 { navigate(by: 1); return }
+                if flung, t > 0 { navigate(by: -1); return }
+                withAnimation(Self.chromeClear) { chromeFrost = 0 }
             }
 
         return magnification.simultaneously(with: dismissSwipe).simultaneously(with: pageSwipe)
+    }
+
+    /// Locks the drag to one axis on the first movement.
+    private func lockAxis(_ translation: CGSize) {
+        guard dragAxis == nil else { return }
+        dragAxis = abs(translation.width) > abs(translation.height) ? .horizontal : .vertical
+    }
+
+    /// Clears the locked axis after the current run-loop turn, so the page and
+    /// dismiss gestures (which both fire `onEnded` for one drag) each still read
+    /// the locked axis regardless of which handler runs first.
+    private func resetDragAxis() {
+        DispatchQueue.main.async { dragAxis = nil }
+    }
+
+    /// Cancelled swipe: spring the hero back to center carrying the release speed.
+    private func springPageDragBack(velocity: CGFloat) {
+        let remaining = -pageDrag.width
+        let initialV = remaining == 0 ? 0 : Double(velocity / remaining)
+        // Soft, just-over-critically-damped glide — no overshoot, no snap.
+        withAnimation(.interpolatingSpring(stiffness: 110, damping: 22, initialVelocity: initialV)) {
+            pageDrag = .zero
+        }
+    }
+
+    /// Cancelled dismiss: spring the sheet back to rest carrying the release speed.
+    private func springDismissBack(velocity: CGFloat) {
+        let remaining = -dismissDrag.height
+        let initialV = remaining == 0 ? 0 : Double(velocity / remaining)
+        withAnimation(.interpolatingSpring(stiffness: 300, damping: 30, initialVelocity: initialV)) {
+            dismissDrag = .zero
+        }
     }
 
     // MARK: - Lifecycle
@@ -413,13 +468,21 @@ struct ImageDetailView: View {
     }
 
     private func navigate(by delta: Int) {
-        guard let index = currentIndex else { return }
-        let next = index + delta
-        guard tiles.indices.contains(next) else { return }
+        guard let index = currentIndex, tiles.indices.contains(index + delta) else {
+            withAnimation(Self.chromeClear) { chromeFrost = 0 }
+            return
+        }
+        let nextID = tiles[index + delta].id
 
-        resetZoom()
-        withAnimation(Self.transition) {
-            displayedTileID = tiles[next].id
+        // Frost the content to peak, swap the photo + metadata underneath, then
+        // fade the new content back in as the frost clears.
+        withAnimation(Self.frostIn) {
+            chromeFrost = 1
+        } completion: {
+            withAnimation(Self.transition) {
+                displayedTileID = nextID
+            }
+            withAnimation(Self.chromeClear) { chromeFrost = 0 }
         }
     }
 
@@ -427,7 +490,8 @@ struct ImageDetailView: View {
         zoomScale = 1
         zoomOffset = .zero
         dismissDrag = .zero
-        pageDrag = .zero
+        // pageDrag is NOT reset here: it returns to zero via its own velocity
+        // spring, and an instant reset would cut that motion short.
     }
 }
 
