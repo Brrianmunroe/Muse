@@ -17,7 +17,7 @@ struct ImageDetailView: View {
     /// Shared open/close flag, owned by HomeView. Flipping it inside one
     /// `withAnimation` moves the hero, the gallery blur and the scrim together.
     @Binding var isExpanded: Bool
-    @Binding var tileNotes: [Int: String]
+    @State private var tileNotes: [Int: String] = [:]
 
     static let glassForeground = Color(red: 1, green: 0.965, blue: 0.918)
     /// The one curve everything rides: a soft, slightly long ease — gentle out of

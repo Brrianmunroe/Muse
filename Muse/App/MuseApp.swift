@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 @main
 struct MuseApp: App {
@@ -9,5 +10,6 @@ struct MuseApp: App {
             RootView()
                 .environmentObject(authViewModel)
         }
+        .modelContainer(for: LocalMuseImage.self)
     }
 }

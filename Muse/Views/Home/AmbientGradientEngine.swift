@@ -23,29 +23,40 @@ enum AmbientGradientEngine {
     }
 
     static func colors(from image: UIImage) -> AmbientGradientColors? {
-        guard let cgImage = downsample(image, to: sampleSize) else { return nil }
+        guard let cgImage = image.cgImage else { return nil }
 
-        let width = sampleSize
-        let height = sampleSize
-        let half = height / 2
+        let size = sampleSize
+        let half = size / 2
         var top = WeightedRGB()
         var bottom = WeightedRGB()
 
-        guard let data = cgImage.dataProvider?.data,
-              let bytes = CFDataGetBytePtr(data) else { return nil }
+        // Sample through an explicit sRGB / RGBA8 buffer: the previous path read
+        // raw renderer bytes whose channel order isn't guaranteed (often BGRA),
+        // which swapped red and blue and produced off-tone glows.
+        let bytesPerRow = size * 4
+        var buffer = [UInt8](repeating: 0, count: bytesPerRow * size)
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(
+                data: &buffer,
+                width: size,
+                height: size,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: space,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else { return nil }
+        ctx.interpolationQuality = .medium
+        ctx.draw(cgImage, in: CGRect(x: 0, y: 0, width: size, height: size))
 
-        let bpp = cgImage.bitsPerPixel / 8
-        let rowBytes = cgImage.bytesPerRow
-
-        for y in 0..<height {
-            for x in 0..<width {
-                let offset = y * rowBytes + x * bpp
-                let r = CGFloat(bytes[offset])
-                let g = CGFloat(bytes[offset + 1])
-                let b = CGFloat(bytes[offset + 2])
+        for y in 0..<size {
+            for x in 0..<size {
+                let offset = y * bytesPerRow + x * 4
+                let r = CGFloat(buffer[offset])
+                let g = CGFloat(buffer[offset + 1])
+                let b = CGFloat(buffer[offset + 2])
                 let maxC = max(r, g, b)
                 let minC = min(r, g, b)
-                let weight = 1 + ((maxC - minC) / 255) * 4
+                let weight = 1 + ((maxC - minC) / 255) * 3
                 if y < half {
                     top.add(r: r, g: g, b: b, weight: weight)
                 } else {
@@ -58,15 +69,15 @@ enum AmbientGradientEngine {
             r: top.r / top.weight,
             g: top.g / top.weight,
             b: top.b / top.weight,
-            saturationFactor: 1.45,
-            lightnessRange: 0.30...0.62
+            saturationFactor: 1.18,
+            lightnessRange: 0.32...0.66
         )
         let bottomColor = boost(
             r: bottom.r / bottom.weight,
             g: bottom.g / bottom.weight,
             b: bottom.b / bottom.weight,
-            saturationFactor: 1.45,
-            lightnessRange: 0.10...0.24
+            saturationFactor: 1.18,
+            lightnessRange: 0.10...0.26
         )
         return AmbientGradientColors(top: topColor, bottom: bottomColor)
     }
@@ -101,15 +112,6 @@ enum AmbientGradientEngine {
                 options: []
             )
         }
-    }
-
-    private static func downsample(_ image: UIImage, to size: Int) -> CGImage? {
-        let target = CGSize(width: size, height: size)
-        let renderer = UIGraphicsImageRenderer(size: target)
-        let scaled = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: target))
-        }
-        return scaled.cgImage
     }
 
     private static func boost(

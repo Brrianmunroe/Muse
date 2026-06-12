@@ -21,6 +21,10 @@ Package.resolved
 .AppleDouble
 .LSOverride
 
-# Secrets
+# Secrets — never commit these
 .env
+*.env.*
+Secrets.xcconfig
+**/Config/Secrets.xcconfig
 *.xcconfig.local
+GoogleService-Info.plist

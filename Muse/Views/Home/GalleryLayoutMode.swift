@@ -35,8 +35,25 @@ struct TagPreview: Identifiable, Equatable {
     let category: TagCategory
 }
 
+/// Minimal contract the layout engine needs from any tile type.
+protocol GalleryTile: Identifiable where ID == Int {
+    var aspectRatio: CGFloat { get }
+}
+
+/// Real tile backed by a persisted image — carries just what the canvas needs.
+struct MuseTile: GalleryTile, Equatable {
+    let id: Int
+    let aspectRatio: CGFloat
+    let imageID: UUID
+    let thumbnailPath: String?
+    let localPath: String
+    let notes: String
+    let createdAt: Date
+    let tagLabels: [String]
+}
+
 /// Placeholder content tile used until real images are wired in.
-struct SampleTile: Identifiable, Equatable {
+struct SampleTile: GalleryTile, Equatable {
     let id: Int
     let topColor: Color
     let bottomColor: Color

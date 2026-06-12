@@ -21,9 +21,11 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>SUPABASE_ANON_KEY</key>
-	<string>YOUR_SUPABASE_ANON_KEY</string>
+	<string>$(SUPABASE_ANON_KEY)</string>
 	<key>SUPABASE_URL</key>
-	<string>YOUR_SUPABASE_URL</string>
+	<string>$(SUPABASE_URL)</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Muse needs access to your photo library to add images to your inspiration board.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>InstrumentSerif-Regular.ttf</string>

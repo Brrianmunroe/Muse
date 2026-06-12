@@ -21,7 +21,7 @@ enum GalleryLayoutEngine {
     static let vastSpacing: CGFloat = 80
     static let vastTileWidth: CGFloat = 100
 
-    static func layout(mode: GalleryLayoutMode, tiles: [SampleTile], viewport: CGSize) -> GalleryLayout {
+    static func layout(mode: GalleryLayoutMode, tiles: [any GalleryTile], viewport: CGSize) -> GalleryLayout {
         guard viewport.width > 0, viewport.height > 0, !tiles.isEmpty else {
             return GalleryLayout(placements: [:], contentSize: viewport, initialOffset: .zero)
         }
@@ -34,7 +34,7 @@ enum GalleryLayoutEngine {
 
     // MARK: - Vast (hexagonal galaxy)
 
-    private static func vastLayout(tiles: [SampleTile], viewport: CGSize) -> GalleryLayout {
+    private static func vastLayout(tiles: [any GalleryTile], viewport: CGSize) -> GalleryLayout {
         let spacing = vastSpacing
         let tileWidth = vastTileWidth
         let count = tiles.count
@@ -54,7 +54,7 @@ enum GalleryLayoutEngine {
         while tileIndex < count {
             let isOffsetRow = row % 2 == 1
             var rowMaxHeight: CGFloat = 0
-            var rowEntries: [(SampleTile, Int)] = []
+            var rowEntries: [(any GalleryTile, Int)] = []
 
             for col in 0..<columns {
                 guard tileIndex < count else { break }
@@ -94,7 +94,7 @@ enum GalleryLayoutEngine {
 
     // MARK: - Bento (masonry grid)
 
-    private static func bentoLayout(tiles: [SampleTile], viewport: CGSize) -> GalleryLayout {
+    private static func bentoLayout(tiles: [any GalleryTile], viewport: CGSize) -> GalleryLayout {
         let padding: CGFloat = 16
         let gap: CGFloat = 10
         // Clearance for the "Your inspiration" header, which overlays the canvas
@@ -126,7 +126,7 @@ enum GalleryLayoutEngine {
 
     // MARK: - Feed (one tile per page)
 
-    private static func feedLayout(tiles: [SampleTile], viewport: CGSize) -> GalleryLayout {
+    private static func feedLayout(tiles: [any GalleryTile], viewport: CGSize) -> GalleryLayout {
         let pageHeight = viewport.height
         let horizontalInset: CGFloat = 24
         let verticalInset: CGFloat = 56

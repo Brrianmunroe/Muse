@@ -1,35 +1,34 @@
 import SwiftUI
+import SwiftData
 
 struct HomeView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \LocalMuseImage.createdAt, order: .reverse) private var images: [LocalMuseImage]
+
     @State private var layoutMode: GalleryLayoutMode = .vast
-    /// Which tile the detail overlay owns: drives the mount and hides that cell in
-    /// the canvas. Set on open, cleared only once the hero finishes flying home.
     @State private var displayedTileID: Int?
-    /// The visual open/close state. Everything — hero, gallery blur, scrim — reads
-    /// this single flag inside one `withAnimation`, so they move as one motion.
     @State private var isExpanded = false
-    /// Exact on-screen rect of the tapped cell — the hero scales up from here.
     @State private var sourceFrame: CGRect = .zero
-    @State private var tileNotes: [Int: String] = [:]
     @StateObject private var tuning = MorphTuning()
     @State private var showTuningPanel = false
+    @State private var showImagePicker = false
+
+    private var tiles: [MuseTile] { images.map(\.asTile) }
 
     var body: some View {
         NavigationStack {
             Group {
-                if authViewModel.isPreviewMode {
-                    galleryContent
-                } else {
+                if images.isEmpty {
                     emptyState
+                } else {
+                    galleryContent
                 }
             }
             .blur(radius: isExpanded ? 18 : 0)
             .scaleEffect(isExpanded ? 0.96 : 1)
             .animation(ImageDetailView.transition, value: isExpanded)
             .background(MuseTheme.Semantic.surfacePage.ignoresSafeArea())
-            // No top chrome: the gallery owns the full screen, and the nav bar
-            // can't reappear mid-dismiss and shove the layout down.
             .toolbar(.hidden, for: .navigationBar)
         }
         .overlay {
@@ -40,66 +39,76 @@ struct HomeView: View {
                 .animation(ImageDetailView.transition, value: isExpanded)
         }
         .overlay {
-            if displayedTileID != nil {
-                ImageDetailView(
-                    tiles: SampleTile.samples,
-                    sourceFrame: sourceFrame,
-                    displayedTileID: $displayedTileID,
-                    isExpanded: $isExpanded,
-                    tileNotes: $tileNotes
-                )
+            if let id = displayedTileID {
+                if images.contains(where: { $0.intID == id }) {
+                    MuseImageDetailView(
+                        images: images,
+                        sourceFrame: sourceFrame,
+                        displayedTileID: $displayedTileID,
+                        isExpanded: $isExpanded,
+                        modelContext: modelContext
+                    )
+                } else {
+                    ImageDetailView(
+                        tiles: SampleTile.samples,
+                        sourceFrame: sourceFrame,
+                        displayedTileID: $displayedTileID,
+                        isExpanded: $isExpanded
+                    )
+                }
+            }
+        }
+        .sheet(isPresented: $showImagePicker) {
+            ImagePicker { picked in
+                Task { @MainActor in
+                    for image in picked {
+                        guard let paths = try? LocalImageStore.save(image: image) else { continue }
+                        let record = LocalMuseImage(
+                            localPath: paths.localPath,
+                            thumbnailPath: paths.thumbnailPath,
+                            width: paths.width,
+                            height: paths.height
+                        )
+                        modelContext.insert(record)
+                    }
+                    try? modelContext.save()
+                }
             }
         }
     }
 
-    /// Commit a tap: remember the cell's exact rect and mount the overlay. The
-    /// detail view flips `isExpanded` true on appear, so the hero scales up and
-    /// the gallery blur/scrim fade in on that one shared transaction.
     private func openTile(_ id: Int, _ frame: CGRect) {
         sourceFrame = frame
         displayedTileID = id
     }
 
     private var galleryContent: some View {
+        liveGallery(tiles: tiles)
+    }
+
+    private var sampleGallery: some View {
+        liveCanvas(tiles: SampleTile.samples, showAddButton: false)
+    }
+
+    private func liveGallery(tiles: [MuseTile]) -> some View {
         ZStack(alignment: .bottom) {
-            GalleryCanvasView(
+            MuseGalleryCanvasView(
                 mode: $layoutMode,
-                // Bound to displayedTileID: the cell stays hidden until the hero
-                // finishes flying home, then reappears with no flicker.
                 selectedTileID: $displayedTileID,
-                tiles: SampleTile.samples,
+                tiles: tiles,
                 onSelectTile: openTile,
+                onSelectedTileFrame: { sourceFrame = $0 },
                 tuning: tuning
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // The header is an overlay, never a safe-area inset: it must not
-            // resize the canvas when modes change, or the in-flight morph gets
-            // re-laid-out mid-animation and every tile snaps and re-targets.
-            // The bento layout reserves top space for it in the layout engine.
-            .overlay(alignment: .top) {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Your inspiration")
-                        .font(MuseTheme.serif(28))
-                        .padding(.horizontal, 20)
-
-                    sampleTagRow
-                }
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(MuseTheme.Semantic.surfacePage)
-                .opacity(layoutMode == .bento ? 1 : 0)
-                .allowsHitTesting(layoutMode == .bento)
-                .animation(.easeInOut(duration: 0.3), value: layoutMode)
-            }
 
             if displayedTileID == nil {
                 HStack(spacing: 10) {
+                    addButton
+
                     GalleryModeToggle(mode: $layoutMode)
 
-                    Button {
-                        showTuningPanel = true
-                    } label: {
+                    Button { showTuningPanel = true } label: {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(MuseTheme.Semantic.iconDefault)
@@ -118,20 +127,91 @@ struct HomeView: View {
         }
     }
 
-    private var emptyState: some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                Spacer().frame(height: 60)
-                Text("No inspiration yet")
-                    .font(MuseTheme.serif(20))
-                Text("Start by sharing screenshots\nfrom any app into Muse")
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(MuseTheme.Semantic.textSecondary)
+    private func liveCanvas(tiles: [SampleTile], showAddButton: Bool) -> some View {
+        ZStack(alignment: .bottom) {
+            GalleryCanvasView(
+                mode: $layoutMode,
+                selectedTileID: $displayedTileID,
+                tiles: tiles,
+                onSelectTile: openTile,
+                tuning: tuning
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Your inspiration")
+                        .font(MuseTheme.serif(28))
+                        .padding(.horizontal, 20)
+                    sampleTagRow
+                }
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(MuseTheme.Semantic.surfacePage)
+                .opacity(layoutMode == .bento ? 1 : 0)
+                .allowsHitTesting(layoutMode == .bento)
+                .animation(.easeInOut(duration: 0.3), value: layoutMode)
             }
-            .frame(maxWidth: .infinity)
+
+            if displayedTileID == nil {
+                HStack(spacing: 10) {
+                    GalleryModeToggle(mode: $layoutMode)
+                    Button { showTuningPanel = true } label: {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(MuseTheme.Semantic.iconDefault)
+                            .frame(width: 36, height: 36)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
+                }
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
-        .scrollIndicators(.hidden)
+        .sheet(isPresented: $showTuningPanel) {
+            MorphTuningPanel(tuning: tuning)
+                .presentationDetents([.medium, .large])
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+        }
+    }
+
+    private var addButton: some View {
+        Button { showImagePicker = true } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(MuseTheme.Semantic.iconDefault)
+                .frame(width: 36, height: 36)
+                .background(.ultraThinMaterial, in: Circle())
+        }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            Text("Your canvas is empty")
+                .font(MuseTheme.serif(24))
+
+            Text("Add your first image to begin\nbuilding your inspiration board.")
+                .font(.subheadline)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(MuseTheme.Semantic.textSecondary)
+
+            Button { showImagePicker = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "plus")
+                    Text("Add images")
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(MuseTheme.Semantic.surfacePage)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 14)
+                .background(MuseTheme.Semantic.textHeading, in: Capsule())
+            }
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
     }
 
     private var sampleTagRow: some View {
