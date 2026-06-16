@@ -18,8 +18,8 @@ struct GalleryLayout {
 
 enum GalleryLayoutEngine {
 
-    static let vastSpacing: CGFloat = 80
-    static let vastTileWidth: CGFloat = 100
+    static let vastSpacing: CGFloat = 40
+    static let vastTileWidth: CGFloat = 150
 
     static func layout(mode: GalleryLayoutMode, tiles: [any GalleryTile], viewport: CGSize) -> GalleryLayout {
         guard viewport.width > 0, viewport.height > 0, !tiles.isEmpty else {

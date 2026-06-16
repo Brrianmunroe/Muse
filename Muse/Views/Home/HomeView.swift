@@ -11,7 +11,6 @@ struct HomeView: View {
     @State private var isExpanded = false
     @State private var sourceFrame: CGRect = .zero
     @StateObject private var tuning = MorphTuning()
-    @State private var showTuningPanel = false
     @State private var showImagePicker = false
 
     private var tiles: [MuseTile] { images.map(\.asTile) }
@@ -59,22 +58,18 @@ struct HomeView: View {
             }
         }
         .sheet(isPresented: $showImagePicker) {
-            ImagePicker { picked in
-                Task { @MainActor in
-                    for image in picked {
-                        guard let paths = try? LocalImageStore.save(image: image) else { continue }
-                        let record = LocalMuseImage(
-                            localPath: paths.localPath,
-                            thumbnailPath: paths.thumbnailPath,
-                            width: paths.width,
-                            height: paths.height
-                        )
-                        modelContext.insert(record)
-                        // Kick off the AI design description + tags in the background.
-                        ImageAnalysisService.analyzeIfNeeded(record, context: modelContext)
-                    }
-                    try? modelContext.save()
-                }
+            ImagePicker { image in
+                guard let paths = try? LocalImageStore.save(image: image) else { return }
+                let record = LocalMuseImage(
+                    localPath: paths.localPath,
+                    thumbnailPath: paths.thumbnailPath,
+                    width: paths.width,
+                    height: paths.height
+                )
+                modelContext.insert(record)
+                // Kick off the AI design description + tags in the background.
+                ImageAnalysisService.analyzeIfNeeded(record, context: modelContext)
+                try? modelContext.save()
             }
         }
     }
@@ -105,27 +100,18 @@ struct HomeView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if displayedTileID == nil {
-                HStack(spacing: 10) {
-                    addButton
-
+                ZStack {
                     GalleryModeToggle(mode: $layoutMode)
 
-                    Button { showTuningPanel = true } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(MuseTheme.Semantic.iconDefault)
-                            .frame(width: 36, height: 36)
-                            .background(.ultraThinMaterial, in: Circle())
+                    HStack {
+                        Spacer()
+                        addButton
                     }
                 }
+                .padding(.horizontal, 20)
                 .padding(.bottom, 12)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-        }
-        .sheet(isPresented: $showTuningPanel) {
-            MorphTuningPanel(tuning: tuning)
-                .presentationDetents([.medium, .large])
-                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
     }
 
@@ -156,34 +142,22 @@ struct HomeView: View {
             }
 
             if displayedTileID == nil {
-                HStack(spacing: 10) {
-                    GalleryModeToggle(mode: $layoutMode)
-                    Button { showTuningPanel = true } label: {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundStyle(MuseTheme.Semantic.iconDefault)
-                            .frame(width: 36, height: 36)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                }
-                .padding(.bottom, 12)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                GalleryModeToggle(mode: $layoutMode)
+                    .padding(.bottom, 12)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-        }
-        .sheet(isPresented: $showTuningPanel) {
-            MorphTuningPanel(tuning: tuning)
-                .presentationDetents([.medium, .large])
-                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
     }
 
     private var addButton: some View {
         Button { showImagePicker = true } label: {
             Image(systemName: "plus")
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(MuseTheme.Semantic.iconDefault)
-                .frame(width: 36, height: 36)
-                .background(.ultraThinMaterial, in: Circle())
+                .frame(width: 56, height: 56)
+                .background(MuseTheme.Semantic.surfaceCard, in: Circle())
+                .overlay(Circle().stroke(MuseTheme.Semantic.dividerDefault, lineWidth: 1))
+                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         }
     }
 

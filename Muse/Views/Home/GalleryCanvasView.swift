@@ -109,7 +109,7 @@ struct GalleryCanvasView: View {
     }
 
     private func tileContent(_ tile: SampleTile, _ placement: TilePlacement, zoom: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: 5, style: .continuous)
             .fill(tile.gradient)
             .frame(width: placement.frame.width * zoom, height: placement.frame.height * zoom)
             .rotationEffect(placement.rotation)

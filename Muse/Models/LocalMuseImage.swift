@@ -15,6 +15,7 @@ final class LocalMuseImage {
     var tagLabels: [String]
     /// AI-generated 150–200 char design-language description. `nil` until analyzed.
     var aiDescription: String?
+    var isFavorite: Bool = false
 
     init(
         id: UUID = UUID(),
@@ -26,7 +27,8 @@ final class LocalMuseImage {
         sourceApp: String? = nil,
         createdAt: Date = .now,
         tagLabels: [String] = [],
-        aiDescription: String? = nil
+        aiDescription: String? = nil,
+        isFavorite: Bool = false
     ) {
         self.id = id
         self.localPath = localPath
@@ -38,6 +40,7 @@ final class LocalMuseImage {
         self.createdAt = createdAt
         self.tagLabels = tagLabels
         self.aiDescription = aiDescription
+        self.isFavorite = isFavorite
     }
 
     var aspectRatio: CGFloat {
