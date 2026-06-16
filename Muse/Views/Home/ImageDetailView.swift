@@ -28,7 +28,7 @@ struct ImageDetailView: View {
     private static let ambientFade = Animation.easeInOut(duration: 0.5)
 
     // Resting corner radii for the cell and the expanded hero.
-    private static let cellRadius: CGFloat = 10
+    private static let cellRadius: CGFloat = 5
     private static let heroRadius: CGFloat = 18
     /// Motion blur rides a parabola: zero at rest, peaking at the midpoint of the
     /// move, back to zero as it settles — both opening and closing. The peak scales
@@ -60,6 +60,25 @@ struct ImageDetailView: View {
     // frosting over; their content swaps under peak frost and fades back in.
     @State private var chromeFrost: CGFloat = 0
     @GestureState private var magnifyBy: CGFloat = 1
+    @FocusState private var notesFocused: Bool
+    // Tap toggles an immersive black backdrop (photo front-and-centre, chrome gone).
+    @State private var immersed = false
+    // 0 = info card hidden (photo is the star), 1 = card fully revealed.
+    @State private var cardReveal: CGFloat = 0
+    @State private var revealDrag: CGFloat = 0
+    private static let revealDistance: CGFloat = 180
+
+    /// Live 0→1 reveal of the info card, folding the in-progress drag into the
+    /// settled `cardReveal` so photo and card track the thumb, then settle on release.
+    private var revealProgress: CGFloat {
+        // During a horizontal page swipe (or its settle) the reveal must not move,
+        // or the photo's band would shift and it would drift vertically mid-swipe.
+        if dragAxis == .horizontal || pageDrag != .zero { return cardReveal }
+        if cardReveal == 0 {
+            return min(max(-revealDrag / Self.revealDistance, 0), 1)
+        }
+        return min(max(1 - revealDrag / Self.revealDistance, 0), 1)
+    }
 
     private var currentTile: SampleTile? {
         guard let id = displayedTileID else { return nil }
@@ -94,10 +113,13 @@ struct ImageDetailView: View {
     var body: some View {
         if let tile = currentTile {
             GeometryReader { geo in
+                // `geo.safeAreaInsets` reads as zero here because the whole layout
+                // uses `.ignoresSafeArea()`, so measure against the real window insets.
+                let safe = Self.windowSafeArea
                 let dest = heroDestination(
                     in: geo.size,
-                    safeTop: geo.safeAreaInsets.top,
-                    safeBottom: geo.safeAreaInsets.bottom,
+                    safeTop: safe.top,
+                    safeBottom: safe.bottom,
                     aspect: tile.aspectRatio
                 )
 
@@ -108,31 +130,44 @@ struct ImageDetailView: View {
                     }
                     .opacity(isExpanded ? dragOpacity : 0)
 
+                    // Tap-to-immerse fades the ambient gradient to black so the photo
+                    // sits front and centre, Apple-Photos style.
+                    Color.black
+                        .ignoresSafeArea()
+                        .opacity(immersed ? 1 : 0)
+
                     // Chrome + hero shift together while the user drags to dismiss.
                     ZStack {
+                        heroImage(tile: tile, dest: dest, width: geo.size.width)
+
+                        // Chrome sits above the hero so its buttons stay tappable;
+                        // the surrounding Spacers are transparent to touches, so the
+                        // photo's pan/zoom and page-swipe still read through them.
                         VStack(spacing: 0) {
-                            topBar
-                                .opacity(chromeOpacity)
+                            topBar(safeTop: safe.top)
+                                .opacity(immersed ? 0 : chromeOpacity)
                                 // Static during swipes — only moves on open/dismiss.
                                 .offset(y: (isExpanded ? 0 : -52) - dismissProgress * 36)
                             Spacer(minLength: 0)
                         }
 
+                        // Card is hidden until revealed by a small drag up; it then
+                        // rides up 32pt below the photo's (retreating) bottom.
                         VStack(spacing: 0) {
-                            Spacer(minLength: 0)
                             glassCard(tile: tile)
                                 .padding(.horizontal, 16)
-                                .padding(.bottom, max(16, geo.safeAreaInsets.bottom + 8))
-                                .opacity(chromeOpacity)
-                                // Container stays put; only its content frosts/fades.
+                                .opacity(chromeOpacity * Double(revealProgress))
                                 .offset(y: (isExpanded ? 0 : 52) + dismissProgress * 36)
+                            Spacer(minLength: 0)
                         }
-
-                        heroImage(tile: tile, dest: dest, width: geo.size.width)
+                        .padding(.top, dest.maxY + Self.cardGap)
+                        .allowsHitTesting(revealProgress > 0.6)
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .scaleEffect(dismissScale)
-                    .offset(y: dismissDrag.height)
+                    // Dismiss shrink/offset only ever applies to a vertical pull —
+                    // never during a horizontal swipe, so the photo can't drift down.
+                    .scaleEffect(dragAxis == .horizontal || pageDrag != .zero ? 1 : dismissScale)
+                    .offset(y: dragAxis == .horizontal || pageDrag != .zero ? 0 : dismissDrag.height)
                 }
                 .onAppear {
                     open(tile: tile, dest: dest, screenHeight: geo.size.height)
@@ -168,18 +203,48 @@ struct ImageDetailView: View {
             .blur(radius: motionBlur)
             .offset(x: zoomOffset.width + pageDrag.width, y: zoomOffset.height)
             .position(x: frame.midX, y: frame.midY)
+            .onTapGesture { toggleImmerse() }
             .gesture(combinedImageGesture(tile: tile, width: width))
     }
 
-    /// Fit the tile's aspect ratio into the area between the top bar and the
-    /// metadata card, centered — the hero's resting frame on screen.
+    /// Real window safe-area insets. Needed because `geo.safeAreaInsets` reads as
+    /// zero inside this `.ignoresSafeArea()` layout, which would push the back button
+    /// up under the status bar.
+    static var windowSafeArea: UIEdgeInsets {
+        let insets = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?.safeAreaInsets ?? .zero
+        // The lookup can miss (returns zero) in this overlay context, which would
+        // jam the back button into the status bar. Floor it to a notch device.
+        return UIEdgeInsets(
+            top: max(insets.top, 47),
+            left: insets.left,
+            bottom: max(insets.bottom, 20),
+            right: insets.right
+        )
+    }
+
+    /// Constant gap between the photo's bottom and the info card.
+    private static let cardGap: CGFloat = 32
+    /// Vertical room kept for the glass card so a tall portrait can't push it
+    /// off-screen. Matched to the compact card's real height — must stay ≥ it or the
+    /// card's bottom clips. Re-tune if the card's height changes.
+    private static let cardReserve: CGFloat = 230
+
+    /// Center the tile's aspect ratio in the area between the back button and the
+    /// reserved card zone, with the card hugging it 32pt below — Photos-app style.
     private func heroDestination(in size: CGSize, safeTop: CGFloat, safeBottom: CGFloat, aspect: CGFloat) -> CGRect {
-        let hInset: CGFloat = 22
-        let top = safeTop + 104
-        let glassReserve: CGFloat = 296 + safeBottom
-        let bottom = max(top + 160, size.height - glassReserve)
+        let reveal = revealProgress
+        // Immersed: photo fills the whole screen over black. Otherwise it's centered
+        // in a band whose bottom retreats as the card is revealed, so the photo eases
+        // up to make room — and grows back to fill the band when the card is hidden.
+        let hInset: CGFloat = immersed ? 0 : 10
+        let top: CGFloat = immersed ? 0 : safeTop + 58
+        let bottomFull: CGFloat = immersed ? size.height : size.height - safeBottom
+        let bottom = bottomFull - reveal * (Self.cardReserve + Self.cardGap)
         let availableWidth = size.width - hInset * 2
-        let availableHeight = bottom - top
+        let availableHeight = max(160, bottom - top)
 
         var width = availableWidth
         var height = width / aspect
@@ -224,16 +289,15 @@ struct ImageDetailView: View {
 
     // MARK: - Top bar
 
-    private static let topBarPadding: CGFloat = 60
-
-    private var topBar: some View {
+    private func topBar(safeTop: CGFloat) -> some View {
         HStack {
             // Single back button — returns to the gallery, same as the swipe-down.
             glassIconButton(systemName: "chevron.left") { dismiss() }
             Spacer()
         }
         .padding(.horizontal, 20)
-        .padding(.top, Self.topBarPadding)
+        // Sit just inside the safe area, clear of the status bar, on every device.
+        .padding(.top, safeTop + 12)
         .padding(.bottom, 8)
     }
 
@@ -251,13 +315,16 @@ struct ImageDetailView: View {
     // MARK: - Glass card
 
     private func glassCard(tile: SampleTile) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
+        // Deliberate per-section rhythm: a single uniform gap read as uneven across
+        // blocks of different density, so each section sets its own top gap instead.
+        VStack(alignment: .leading, spacing: 0) {
             FlowLayout(spacing: 6) {
                 ForEach(tile.tags) { tag in
                     TagChip(preview: tag, style: .glass)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 16)
 
             Text(tile.aiDescription)
                 .font(MuseTheme.serif(18))
@@ -268,28 +335,54 @@ struct ImageDetailView: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 5) {
-                Text("Your notes")
-                    .font(.system(size: 10, weight: .semibold))
-                    .tracking(1)
-                    .textCase(.uppercase)
-                    .foregroundStyle(Self.glassForeground.opacity(0.65))
+                HStack {
+                    Text("Your notes")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(1)
+                        .textCase(.uppercase)
+                        .foregroundStyle(Self.glassForeground.opacity(0.65))
+                    Spacer()
+                    if notesFocused {
+                        Button("Done") { notesFocused = false }
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Self.glassForeground.opacity(0.8))
+                            .buttonStyle(.plain)
+                    }
+                }
 
-                TextEditor(text: notesBinding(for: tile))
-                    .font(.system(size: 14))
-                    .foregroundStyle(Self.glassForeground)
-                    .scrollContentBackground(.hidden)
-                    .frame(minHeight: 44, maxHeight: 72)
-                    .padding(.horizontal, 13)
-                    .padding(.vertical, 11)
-                    .background(Color.black.opacity(0.28))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                // Tap-to-edit: reads as plain text at rest with a quiet placeholder
+                // when empty; the dark field only appears once focused.
+                ZStack(alignment: .topLeading) {
+                    if (tileNotes[tile.id] ?? tile.notes).isEmpty {
+                        Text("Add a note")
+                            .font(.system(size: 15))
+                            .foregroundStyle(Self.glassForeground.opacity(0.4))
+                            .padding(.horizontal, notesFocused ? 13 : 0)
+                            .padding(.vertical, notesFocused ? 11 : 2)
+                            .allowsHitTesting(false)
+                    }
+                    TextEditor(text: notesBinding(for: tile))
+                        .font(.system(size: 15))
+                        .foregroundStyle(Self.glassForeground)
+                        .scrollContentBackground(.hidden)
+                        .focused($notesFocused)
+                        .frame(minHeight: notesFocused ? 60 : 24, maxHeight: 120)
+                        .padding(.horizontal, notesFocused ? 13 : 0)
+                        .padding(.vertical, notesFocused ? 11 : 0)
+                        .background(notesFocused ? Color.black.opacity(0.28) : Color.clear)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
             }
+            .padding(.top, 20)
+            .animation(.easeInOut(duration: 0.2), value: notesFocused)
 
             if let source = tile.sourceApp {
                 Text("Saved from \(source) · \(tile.createdAt.formatted(date: .abbreviated, time: .omitted))")
                     .font(.system(size: 12))
                     .foregroundStyle(Self.glassForeground.opacity(0.55))
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    // Smaller, distinct gap for the footnote.
+                    .padding(.top, 14)
             }
         }
         .padding(18)
@@ -333,25 +426,46 @@ struct ImageDetailView: View {
 
         // Global coordinate space: translation is measured against the screen, not
         // the sheet moving under the thumb — that feedback was the jitter.
-        let dismissSwipe = DragGesture(minimumDistance: 8, coordinateSpace: .global)
+        // One vertical gesture, three jobs by direction + state:
+        //   • card hidden, drag up   → reveal the info card
+        //   • card shown, drag down  → collapse it
+        //   • card hidden, drag down → dismiss (the original behaviour)
+        let verticalSwipe = DragGesture(minimumDistance: 8, coordinateSpace: .global)
             .onChanged { value in
-                guard zoomScale <= 1.05 else { return }
+                guard zoomScale <= 1.05, !immersed else { return }
                 lockAxis(value.translation)
                 guard dragAxis == .vertical else { return }
-                dismissDrag = value.translation
+                let ty = value.translation.height
+                if cardReveal == 0 {
+                    if ty < 0 { revealDrag = ty; dismissDrag = .zero }
+                    else { revealDrag = 0; dismissDrag = value.translation }
+                } else {
+                    if ty > 0 { revealDrag = ty; dismissDrag = .zero }
+                    else { revealDrag = 0 }
+                }
             }
             .onEnded { value in
                 defer { resetDragAxis() }
-                guard zoomScale <= 1.05, dragAxis == .vertical else {
-                    dismissDrag = .zero
+                let ty = value.translation.height
+                let v = value.velocity.height
+                if immersed {
+                    if ty > 70 || v > 600 { toggleImmerse() }
                     return
                 }
-                let v = value.velocity.height
-                if value.translation.height > 120 || v > 700 {
-                    dismiss()
-                } else {
-                    springDismissBack(velocity: v)
+                guard zoomScale <= 1.05, dragAxis == .vertical else {
+                    dismissDrag = .zero; revealDrag = 0; return
                 }
+                if dismissDrag != .zero {
+                    if ty > 120 || v > 700 { dismiss() } else { springDismissBack(velocity: v) }
+                    return
+                }
+                let target: CGFloat
+                if cardReveal == 0 {
+                    target = (-ty > Self.revealDistance * 0.3 || v < -500) ? 1 : 0
+                } else {
+                    target = (ty > Self.revealDistance * 0.3 || v > 500) ? 0 : 1
+                }
+                settleReveal(to: target)
             }
 
         // Tracks the thumb from the first pixel; release velocity decides whether
@@ -380,13 +494,33 @@ struct ImageDetailView: View {
                 withAnimation(Self.chromeClear) { chromeFrost = 0 }
             }
 
-        return magnification.simultaneously(with: dismissSwipe).simultaneously(with: pageSwipe)
+        return magnification.simultaneously(with: verticalSwipe).simultaneously(with: pageSwipe)
     }
 
-    /// Locks the drag to one axis on the first movement.
+    /// Tap toggles the immersive black backdrop; entering it folds the card away.
+    private func toggleImmerse() {
+        withAnimation(Self.transition) {
+            immersed.toggle()
+            if immersed { cardReveal = 0; revealDrag = 0 }
+        }
+    }
+
+    /// Springs the info card to fully shown or hidden after a reveal/collapse drag.
+    private func settleReveal(to target: CGFloat) {
+        withAnimation(.interpolatingSpring(stiffness: 240, damping: 28)) {
+            cardReveal = target
+            revealDrag = 0
+        }
+    }
+
+    /// Locks the drag to one axis once a clear direction emerges, so a slightly
+    /// diagonal horizontal swipe can't mis-lock to vertical (which made the photo
+    /// shrink and swoop down mid-swipe).
     private func lockAxis(_ translation: CGSize) {
         guard dragAxis == nil else { return }
-        dragAxis = abs(translation.width) > abs(translation.height) ? .horizontal : .vertical
+        let dx = abs(translation.width), dy = abs(translation.height)
+        guard max(dx, dy) > 12 else { return }
+        dragAxis = dx > dy ? .horizontal : .vertical
     }
 
     /// Clears the locked axis after the current run-loop turn, so the page and
@@ -423,6 +557,9 @@ struct ImageDetailView: View {
     private func open(tile: SampleTile, dest: CGRect, screenHeight: CGFloat) {
         crossfadeAmbient(to: tile, animated: false)
         isExpanded = false
+        immersed = false
+        cardReveal = 0
+        revealDrag = 0
         motionBlur = 0
         blurPeak = Self.blurPeak(from: sourceFrame, to: dest, screenHeight: screenHeight)
         withAnimation(Self.transition) {

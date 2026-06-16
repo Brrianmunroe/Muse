@@ -7,34 +7,35 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1A9563DC7BCE85236FD32689 /* LocalImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5A8F484D0CB8C5E3B35D682 /* LocalImageStore.swift */; };
 		3A247AF35414968C40C69ED9 /* InstrumentSerif-Italic.ttf in Resources */ = {isa = PBXBuildFile; fileRef = A8714BA6DB5383DBFA40F490 /* InstrumentSerif-Italic.ttf */; };
+		3EB57AF4F1B0137EA432C9EC /* MorphTuning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37D6CDA1B7BA1B718FA6A1EF /* MorphTuning.swift */; };
 		43E9910BDC0C652B07427102 /* ImageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C71633F047B87D2999B01379 /* ImageDetailView.swift */; };
 		4786BD7D7F9ECB6DFE4B75FF /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7C987F0C5443C4A8A162694 /* Theme.swift */; };
 		4FD9105BF0CD89DD925657AA /* GalleryLayoutMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB9BC532F22F75687E3E9F15 /* GalleryLayoutMode.swift */; };
 		539C43661893DEFD4D9F50FD /* TagChip.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9F0C5951987F7D271A00A6D /* TagChip.swift */; };
 		57BC6261A13EAA531C36A994 /* MuseImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8EC8FCD14F9C7F900DDF3F6E /* MuseImage.swift */; };
-		66B6426B2FDB4CDB00F14C8C /* LocalMuseImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B6426A2FDB4CDB00F14C8C /* LocalMuseImage.swift */; };
-		66B6426D2FDB4CEF00F14C8C /* LocalImageStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B6426C2FDB4CEF00F14C8C /* LocalImageStore.swift */; };
-		66B642712FDB4D0000F14C8C /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B642702FDB4D0000F14C8C /* ImageCache.swift */; };
-		66B6426F2FDB4D0200F14C8C /* ImagePickerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B6426E2FDB4D0200F14C8C /* ImagePickerCoordinator.swift */; };
-		66B642722FDB4D1700F14C8C /* MuseImageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B642712FDB4D1700F14C8C /* MuseImageDetailView.swift */; };
-		66B642732FDB4D1700F14C8C /* MuseGalleryCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B642702FDB4D1700F14C8C /* MuseGalleryCanvasView.swift */; };
+		5C7176BA0A0F1417FD041875 /* ImagePickerCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63C5A4511B452C7093FA4E61 /* ImagePickerCoordinator.swift */; };
 		7EEBA79CF8789E11B6E1928A /* InstrumentSerif-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 1D18140946C09C7AA1666C21 /* InstrumentSerif-Regular.ttf */; };
 		7FBD4BB3EFBA304E45B471FB /* Tag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44DC4B20AD707375EC0DAABC /* Tag.swift */; };
 		85D1F9CDC0AF9A8F839A3B9B /* Collection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4462B7883D68FBB94D8DBFD4 /* Collection.swift */; };
+		8765692F7841E045C9C91FAA /* MuseImageDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC9B9B47B06E7C5C599AADAD /* MuseImageDetailView.swift */; };
 		8854D7342250A60B32C7DF0B /* GalleryLayoutEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EB4E4C6FF84C93FC42F6D6C /* GalleryLayoutEngine.swift */; };
+		8F92D08CE51ED8DB4DC08E70 /* Secrets.xcconfig.example in Resources */ = {isa = PBXBuildFile; fileRef = FBEF163E531C44A54A8EA48F /* Secrets.xcconfig.example */; };
 		92EF47B550EB545ADC2C2D1F /* MuseApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = C03531561490649BA35082E6 /* MuseApp.swift */; };
 		958E91938EC8216C4E92E14A /* GalleryModeToggle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B127E1930AC55129D8F1BC29 /* GalleryModeToggle.swift */; };
+		9CB74850CE120573753EB619 /* MorphTuningPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF3464B09332EAE5E52C55A5 /* MorphTuningPanel.swift */; };
 		A0E685AE976926DE92960008 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 324AE73D8FD653A48ED316AB /* RootView.swift */; };
-		A1F2E3D4C5B6A79880011001 /* MorphTuning.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F2E3D4C5B6A79880011002 /* MorphTuning.swift */; };
-		A1F2E3D4C5B6A79880011003 /* MorphTuningPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1F2E3D4C5B6A79880011004 /* MorphTuningPanel.swift */; };
 		A2B5EBD3122F5C2F22DC3511 /* UserProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE1E4F0F2227EF9EBDE8B219 /* UserProfile.swift */; };
 		B16B5F71C7EB8060C157CE7D /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDCDB6CC1B08BF6AB06AF2F0 /* HomeView.swift */; };
 		B1C18A55CA8E603A32A2845B /* SupabaseService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B81540F8F24A440BDCDF7C3C /* SupabaseService.swift */; };
 		B1FD2E9BBA3F5C1A30212716 /* StorageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 899DD77D9CDEFA9AE46CF60E /* StorageService.swift */; };
-		AB12CD34EF56AB78CD90EF12 /* ImageAnalysisService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12EF90CD78AB56EF34CD12AB /* ImageAnalysisService.swift */; };
 		B37051CD5F4E0F778A9FD828 /* GalleryCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 81291941C6720287B4C401EA /* GalleryCanvasView.swift */; };
+		C1070CA592148ACA19AB065A /* MuseGalleryCanvasView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2285B68CC9F418FD8409E7B /* MuseGalleryCanvasView.swift */; };
+		C796FEA87C573BD6A8381BBC /* ImageAnalysisService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5F277162439793085059BC5 /* ImageAnalysisService.swift */; };
+		CEAAC52175CF7805C10C57EB /* LocalMuseImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8617E48601CE1F3E00B063B9 /* LocalMuseImage.swift */; };
 		CEAEB099C8C41F3CBEC58AD8 /* ImageService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC4E1D6041472BC66D06136A /* ImageService.swift */; };
+		D1975D909A5518186EF7DC32 /* ImageCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2902EBDBB2FC20D73EF4774 /* ImageCache.swift */; };
 		D9EFCC4FF8EE70158C6AFAB2 /* AmbientGradientEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = A88C4E93B61B544B80AEFAF7 /* AmbientGradientEngine.swift */; };
 		DF28E32DC355A35855898C1F /* AuthViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DC261E674F811DF37CAD744 /* AuthViewModel.swift */; };
 		E3F262D3BA16BAEFDB4EDC99 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3EA4A9F6378856B58BC6CC8 /* AuthService.swift */; };
@@ -45,24 +46,18 @@
 /* Begin PBXFileReference section */
 		1D18140946C09C7AA1666C21 /* InstrumentSerif-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "InstrumentSerif-Regular.ttf"; sourceTree = "<group>"; };
 		324AE73D8FD653A48ED316AB /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		37D6CDA1B7BA1B718FA6A1EF /* MorphTuning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorphTuning.swift; sourceTree = "<group>"; };
 		3DC261E674F811DF37CAD744 /* AuthViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthViewModel.swift; sourceTree = "<group>"; };
 		4462B7883D68FBB94D8DBFD4 /* Collection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Collection.swift; sourceTree = "<group>"; };
 		44DC4B20AD707375EC0DAABC /* Tag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tag.swift; sourceTree = "<group>"; };
-		66B642692FDB477100F14C8C /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
-		66B6426A2FDB4CDB00F14C8C /* LocalMuseImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMuseImage.swift; sourceTree = "<group>"; };
-		66B6426C2FDB4CEF00F14C8C /* LocalImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalImageStore.swift; sourceTree = "<group>"; };
-		66B642702FDB4D0000F14C8C /* ImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCache.swift; sourceTree = "<group>"; };
-		66B6426E2FDB4D0200F14C8C /* ImagePickerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePickerCoordinator.swift; sourceTree = "<group>"; };
-		66B642702FDB4D1700F14C8C /* MuseGalleryCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MuseGalleryCanvasView.swift; sourceTree = "<group>"; };
-		66B642712FDB4D1700F14C8C /* MuseImageDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MuseImageDetailView.swift; sourceTree = "<group>"; };
+		63C5A4511B452C7093FA4E61 /* ImagePickerCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImagePickerCoordinator.swift; sourceTree = "<group>"; };
 		7EB4E4C6FF84C93FC42F6D6C /* GalleryLayoutEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryLayoutEngine.swift; sourceTree = "<group>"; };
 		81291941C6720287B4C401EA /* GalleryCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryCanvasView.swift; sourceTree = "<group>"; };
+		8617E48601CE1F3E00B063B9 /* LocalMuseImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMuseImage.swift; sourceTree = "<group>"; };
+		88152302DFF9988A8AD8C5EC /* Secrets.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 		899DD77D9CDEFA9AE46CF60E /* StorageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StorageService.swift; sourceTree = "<group>"; };
-		12EF90CD78AB56EF34CD12AB /* ImageAnalysisService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAnalysisService.swift; sourceTree = "<group>"; };
 		8EC8FCD14F9C7F900DDF3F6E /* MuseImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MuseImage.swift; sourceTree = "<group>"; };
 		9DD8D4CA8D6A7832A3DB9238 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
-		A1F2E3D4C5B6A79880011002 /* MorphTuning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorphTuning.swift; sourceTree = "<group>"; };
-		A1F2E3D4C5B6A79880011004 /* MorphTuningPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorphTuningPanel.swift; sourceTree = "<group>"; };
 		A8714BA6DB5383DBFA40F490 /* InstrumentSerif-Italic.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; path = "InstrumentSerif-Italic.ttf"; sourceTree = "<group>"; };
 		A88C4E93B61B544B80AEFAF7 /* AmbientGradientEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmbientGradientEngine.swift; sourceTree = "<group>"; };
 		B127E1930AC55129D8F1BC29 /* GalleryModeToggle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryModeToggle.swift; sourceTree = "<group>"; };
@@ -71,13 +66,20 @@
 		BC19E4BC618EC6F5DCBECB53 /* Muse.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Muse.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		BDCDB6CC1B08BF6AB06AF2F0 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		BE1E4F0F2227EF9EBDE8B219 /* UserProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserProfile.swift; sourceTree = "<group>"; };
+		BF3464B09332EAE5E52C55A5 /* MorphTuningPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MorphTuningPanel.swift; sourceTree = "<group>"; };
 		C03531561490649BA35082E6 /* MuseApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MuseApp.swift; sourceTree = "<group>"; };
+		C2285B68CC9F418FD8409E7B /* MuseGalleryCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MuseGalleryCanvasView.swift; sourceTree = "<group>"; };
 		C3EA4A9F6378856B58BC6CC8 /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		C5F277162439793085059BC5 /* ImageAnalysisService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageAnalysisService.swift; sourceTree = "<group>"; };
 		C71633F047B87D2999B01379 /* ImageDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageDetailView.swift; sourceTree = "<group>"; };
 		D73FEEB3B43C3C157C11DA10 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		E2902EBDBB2FC20D73EF4774 /* ImageCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageCache.swift; sourceTree = "<group>"; };
 		EC4E1D6041472BC66D06136A /* ImageService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageService.swift; sourceTree = "<group>"; };
+		EC9B9B47B06E7C5C599AADAD /* MuseImageDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MuseImageDetailView.swift; sourceTree = "<group>"; };
+		F5A8F484D0CB8C5E3B35D682 /* LocalImageStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalImageStore.swift; sourceTree = "<group>"; };
 		F9F0C5951987F7D271A00A6D /* TagChip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TagChip.swift; sourceTree = "<group>"; };
 		FB9BC532F22F75687E3E9F15 /* GalleryLayoutMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GalleryLayoutMode.swift; sourceTree = "<group>"; };
+		FBEF163E531C44A54A8EA48F /* Secrets.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text; path = Secrets.xcconfig.example; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -102,7 +104,7 @@
 		1D56FE1326C30AFD45022F75 /* Components */ = {
 			isa = PBXGroup;
 			children = (
-				66B6426E2FDB4D0200F14C8C /* ImagePickerCoordinator.swift */,
+				63C5A4511B452C7093FA4E61 /* ImagePickerCoordinator.swift */,
 				F9F0C5951987F7D271A00A6D /* TagChip.swift */,
 			);
 			path = Components;
@@ -113,6 +115,7 @@
 			children = (
 				102791A30FDA3D67CE8763D8 /* .cursor */,
 				CA65B3CA79E3B2572F8B8434 /* App */,
+				7710B4C18F25DD5F0EF37ECC /* Config */,
 				F850CCF80B9D21E3CFC028DB /* Extensions */,
 				931575225EDF35F34E37ADEA /* Models */,
 				DE17E162502FC3AEBEA64E94 /* Resources */,
@@ -160,15 +163,24 @@
 			path = Fonts;
 			sourceTree = "<group>";
 		};
+		7710B4C18F25DD5F0EF37ECC /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				88152302DFF9988A8AD8C5EC /* Secrets.xcconfig */,
+				FBEF163E531C44A54A8EA48F /* Secrets.xcconfig.example */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
 		8C53A788492E048B4CC8D5EB /* Services */ = {
 			isa = PBXGroup;
 			children = (
-				66B6426C2FDB4CEF00F14C8C /* LocalImageStore.swift */,
-				66B642702FDB4D0000F14C8C /* ImageCache.swift */,
 				C3EA4A9F6378856B58BC6CC8 /* AuthService.swift */,
+				C5F277162439793085059BC5 /* ImageAnalysisService.swift */,
+				E2902EBDBB2FC20D73EF4774 /* ImageCache.swift */,
 				EC4E1D6041472BC66D06136A /* ImageService.swift */,
+				F5A8F484D0CB8C5E3B35D682 /* LocalImageStore.swift */,
 				899DD77D9CDEFA9AE46CF60E /* StorageService.swift */,
-				12EF90CD78AB56EF34CD12AB /* ImageAnalysisService.swift */,
 				B81540F8F24A440BDCDF7C3C /* SupabaseService.swift */,
 			);
 			path = Services;
@@ -177,8 +189,8 @@
 		931575225EDF35F34E37ADEA /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				66B6426A2FDB4CDB00F14C8C /* LocalMuseImage.swift */,
 				4462B7883D68FBB94D8DBFD4 /* Collection.swift */,
+				8617E48601CE1F3E00B063B9 /* LocalMuseImage.swift */,
 				8EC8FCD14F9C7F900DDF3F6E /* MuseImage.swift */,
 				44DC4B20AD707375EC0DAABC /* Tag.swift */,
 				BE1E4F0F2227EF9EBDE8B219 /* UserProfile.swift */,
@@ -215,24 +227,23 @@
 			children = (
 				22D6D14501CF74A791AA6C50 /* Muse */,
 				FF2D9FB2135888FE5073E6D9 /* Products */,
-				66B642692FDB477100F14C8C /* Secrets.xcconfig */,
 			);
 			sourceTree = "<group>";
 		};
 		D9BDA7276566E647B60B7267 /* Home */ = {
 			isa = PBXGroup;
 			children = (
-				66B642702FDB4D1700F14C8C /* MuseGalleryCanvasView.swift */,
-				66B642712FDB4D1700F14C8C /* MuseImageDetailView.swift */,
 				A88C4E93B61B544B80AEFAF7 /* AmbientGradientEngine.swift */,
 				81291941C6720287B4C401EA /* GalleryCanvasView.swift */,
-				A1F2E3D4C5B6A79880011002 /* MorphTuning.swift */,
-				A1F2E3D4C5B6A79880011004 /* MorphTuningPanel.swift */,
 				7EB4E4C6FF84C93FC42F6D6C /* GalleryLayoutEngine.swift */,
 				FB9BC532F22F75687E3E9F15 /* GalleryLayoutMode.swift */,
 				B127E1930AC55129D8F1BC29 /* GalleryModeToggle.swift */,
 				BDCDB6CC1B08BF6AB06AF2F0 /* HomeView.swift */,
 				C71633F047B87D2999B01379 /* ImageDetailView.swift */,
+				37D6CDA1B7BA1B718FA6A1EF /* MorphTuning.swift */,
+				BF3464B09332EAE5E52C55A5 /* MorphTuningPanel.swift */,
+				C2285B68CC9F418FD8409E7B /* MuseGalleryCanvasView.swift */,
+				EC9B9B47B06E7C5C599AADAD /* MuseImageDetailView.swift */,
 			);
 			path = Home;
 			sourceTree = "<group>";
@@ -327,6 +338,7 @@
 			files = (
 				3A247AF35414968C40C69ED9 /* InstrumentSerif-Italic.ttf in Resources */,
 				7EEBA79CF8789E11B6E1928A /* InstrumentSerif-Regular.ttf in Resources */,
+				8F92D08CE51ED8DB4DC08E70 /* Secrets.xcconfig.example in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -342,26 +354,26 @@
 				DF28E32DC355A35855898C1F /* AuthViewModel.swift in Sources */,
 				85D1F9CDC0AF9A8F839A3B9B /* Collection.swift in Sources */,
 				B37051CD5F4E0F778A9FD828 /* GalleryCanvasView.swift in Sources */,
-				A1F2E3D4C5B6A79880011001 /* MorphTuning.swift in Sources */,
-				A1F2E3D4C5B6A79880011003 /* MorphTuningPanel.swift in Sources */,
-				66B6426B2FDB4CDB00F14C8C /* LocalMuseImage.swift in Sources */,
-				66B6426D2FDB4CEF00F14C8C /* LocalImageStore.swift in Sources */,
-				66B642712FDB4D0000F14C8C /* ImageCache.swift in Sources */,
 				8854D7342250A60B32C7DF0B /* GalleryLayoutEngine.swift in Sources */,
 				4FD9105BF0CD89DD925657AA /* GalleryLayoutMode.swift in Sources */,
 				958E91938EC8216C4E92E14A /* GalleryModeToggle.swift in Sources */,
 				B16B5F71C7EB8060C157CE7D /* HomeView.swift in Sources */,
+				C796FEA87C573BD6A8381BBC /* ImageAnalysisService.swift in Sources */,
+				D1975D909A5518186EF7DC32 /* ImageCache.swift in Sources */,
 				43E9910BDC0C652B07427102 /* ImageDetailView.swift in Sources */,
+				5C7176BA0A0F1417FD041875 /* ImagePickerCoordinator.swift in Sources */,
 				CEAEB099C8C41F3CBEC58AD8 /* ImageService.swift in Sources */,
+				1A9563DC7BCE85236FD32689 /* LocalImageStore.swift in Sources */,
+				CEAAC52175CF7805C10C57EB /* LocalMuseImage.swift in Sources */,
+				3EB57AF4F1B0137EA432C9EC /* MorphTuning.swift in Sources */,
+				9CB74850CE120573753EB619 /* MorphTuningPanel.swift in Sources */,
 				92EF47B550EB545ADC2C2D1F /* MuseApp.swift in Sources */,
-				66B6426F2FDB4D0200F14C8C /* ImagePickerCoordinator.swift in Sources */,
-				66B642722FDB4D1700F14C8C /* MuseImageDetailView.swift in Sources */,
-				66B642732FDB4D1700F14C8C /* MuseGalleryCanvasView.swift in Sources */,
+				C1070CA592148ACA19AB065A /* MuseGalleryCanvasView.swift in Sources */,
 				57BC6261A13EAA531C36A994 /* MuseImage.swift in Sources */,
+				8765692F7841E045C9C91FAA /* MuseImageDetailView.swift in Sources */,
 				A0E685AE976926DE92960008 /* RootView.swift in Sources */,
 				F9D34744E190BD093A9475F9 /* SignInView.swift in Sources */,
 				B1FD2E9BBA3F5C1A30212716 /* StorageService.swift in Sources */,
-				AB12CD34EF56AB78CD90EF12 /* ImageAnalysisService.swift in Sources */,
 				B1C18A55CA8E603A32A2845B /* SupabaseService.swift in Sources */,
 				7FBD4BB3EFBA304E45B471FB /* Tag.swift in Sources */,
 				539C43661893DEFD4D9F50FD /* TagChip.swift in Sources */,
@@ -375,7 +387,6 @@
 /* Begin XCBuildConfiguration section */
 		1AB6118CAD1DC44E5BAB7653 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 66B642692FDB477100F14C8C /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
@@ -397,7 +408,6 @@
 		};
 		373ECEE8608DFF8D555878E0 /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 66B642692FDB477100F14C8C /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -461,7 +471,6 @@
 		};
 		A869368A2D98C2AA390647DC /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 66B642692FDB477100F14C8C /* Secrets.xcconfig */;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
 				CLANG_ANALYZER_NONNULL = YES;
@@ -518,7 +527,6 @@
 		};
 		C52D8AF89082EC9342F1FA96 /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 66B642692FDB477100F14C8C /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";

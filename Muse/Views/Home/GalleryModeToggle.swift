@@ -13,13 +13,13 @@ struct GalleryModeToggle: View {
                     mode = candidate
                 } label: {
                     Image(systemName: candidate.iconName)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 17, weight: .medium))
                         .foregroundStyle(
                             mode == candidate
                                 ? MuseTheme.Semantic.buttonPrimaryFg
                                 : MuseTheme.Semantic.iconDefault
                         )
-                        .frame(width: 44, height: 34)
+                        .frame(width: 52, height: 44)
                         .background {
                             if mode == candidate {
                                 Capsule()

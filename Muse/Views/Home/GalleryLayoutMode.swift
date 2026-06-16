@@ -13,9 +13,9 @@ enum GalleryLayoutMode: String, CaseIterable, Identifiable {
 
     var iconName: String {
         switch self {
-        case .vast: return "sparkles"
-        case .bento: return "square.grid.2x2"
-        case .feed: return "rectangle.portrait"
+        case .vast: return "square.grid.3x3.fill"
+        case .bento: return "square.grid.2x2.fill"
+        case .feed: return "rectangle.portrait.fill"
         }
     }
 
