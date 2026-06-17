@@ -1,9 +1,11 @@
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct HomeView: View {
     @EnvironmentObject var authViewModel: AuthViewModel
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \LocalMuseImage.createdAt, order: .reverse) private var images: [LocalMuseImage]
 
     @State private var layoutMode: GalleryLayoutMode = .vast
@@ -82,18 +84,40 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showImagePicker) {
             ImagePicker { image in
-                guard let paths = try? LocalImageStore.save(image: image) else { return }
-                let record = LocalMuseImage(
-                    localPath: paths.localPath,
-                    thumbnailPath: paths.thumbnailPath,
-                    width: paths.width,
-                    height: paths.height
-                )
-                modelContext.insert(record)
-                // Kick off the AI design description + tags in the background.
-                ImageAnalysisService.analyzeIfNeeded(record, context: modelContext)
-                try? modelContext.save()
+                importImage(image)
             }
+        }
+        .onAppear { importPendingShares() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { importPendingShares() }
+        }
+    }
+
+    /// Save an image into the gallery and start its AI description, exactly the
+    /// same path whether it came from the picker or the share extension.
+    private func importImage(_ image: UIImage, sourceApp: String? = nil) {
+        guard let paths = try? LocalImageStore.save(image: image) else { return }
+        let record = LocalMuseImage(
+            localPath: paths.localPath,
+            thumbnailPath: paths.thumbnailPath,
+            width: paths.width,
+            height: paths.height,
+            sourceApp: sourceApp
+        )
+        modelContext.insert(record)
+        // Kick off the AI design description + tags in the background.
+        ImageAnalysisService.analyzeIfNeeded(record, context: modelContext)
+        try? modelContext.save()
+    }
+
+    /// Drain any images dropped in by the share extension. Runs on open and
+    /// whenever the app returns to the foreground.
+    private func importPendingShares() {
+        for url in SharedInbox.pendingFiles() {
+            if let image = UIImage(contentsOfFile: url.path) {
+                importImage(image, sourceApp: "Shared")
+            }
+            SharedInbox.remove(url)
         }
     }
 

@@ -29,6 +29,12 @@ targets:
         SWIFT_VERSION: "5.9"
     dependencies:
       - package: Supabase
+      - target: MuseShareExtension
+    entitlements:
+      path: Muse/Muse.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.brianmunroe.Muse
     info:
       path: Muse/App/Info.plist
       properties:
@@ -45,6 +51,27 @@ targets:
           - UIInterfaceOrientationPortrait
         SUPABASE_URL: "YOUR_SUPABASE_URL"
         SUPABASE_ANON_KEY: "YOUR_SUPABASE_ANON_KEY"
+
+  MuseShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+      - path: Muse/Services/SharedInbox.swift
+    settings:
+      base:
+        INFOPLIST_FILE: ShareExtension/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.brianmunroe.Muse.ShareExtension
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_STYLE: Automatic
+        SWIFT_VERSION: "5.9"
+    entitlements:
+      path: ShareExtension/MuseShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.brianmunroe.Muse
 
 schemes:
   Muse:
