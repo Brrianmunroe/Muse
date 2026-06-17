@@ -18,8 +18,11 @@ struct GalleryLayout {
 
 enum GalleryLayoutEngine {
 
-    static let vastSpacing: CGFloat = 40
+    static let vastSpacing: CGFloat = 16
     static let vastTileWidth: CGFloat = 150
+    /// Empty breathing room around the outermost tiles — "one image" of margin so the
+    /// canvas stays snug and the grid never drifts into a sea of empty space.
+    static let vastMargin: CGFloat = vastTileWidth
 
     static func layout(mode: GalleryLayoutMode, tiles: [any GalleryTile], viewport: CGSize) -> GalleryLayout {
         guard viewport.width > 0, viewport.height > 0, !tiles.isEmpty else {
@@ -32,58 +35,48 @@ enum GalleryLayoutEngine {
         }
     }
 
-    // MARK: - Vast (hexagonal galaxy)
+    // MARK: - Vast (packed collage / galaxy)
 
     private static func vastLayout(tiles: [any GalleryTile], viewport: CGSize) -> GalleryLayout {
         let spacing = vastSpacing
         let tileWidth = vastTileWidth
         let count = tiles.count
-        let columns = max(3, Int(ceil(sqrt(Double(count) * 1.1))))
-        let horizontalPitch = tileWidth + spacing
 
-        // Size each row band to fit the tallest tile so nothing overlaps vertically.
-        let minAspect = tiles.map(\.aspectRatio).min() ?? 1
-        let cellHeight = tileWidth / minAspect
-        let verticalPitch = cellHeight + spacing
+        // Roughly-square board: ~sqrt(count) columns. Each tile drops into the
+        // currently-shortest column (masonry), so the varied photo heights interleave
+        // into a collage with no aligned rows.
+        let columns = max(3, Int(Double(count).squareRoot().rounded()))
+        let pitch = tileWidth + spacing
 
+        // Give each column a different vertical start so the top edge is ragged and the
+        // whole board reads as an off-center collage rather than tidy aligned columns.
+        var columnBottoms = (0..<columns).map { c -> CGFloat in
+            let phase = CGFloat((c * 53) % 100) / 100
+            return vastMargin + phase * tileWidth * 0.6
+        }
         var placements: [Int: TilePlacement] = [:]
-        var tileIndex = 0
-        var row = 0
-        var rowY = spacing
 
-        while tileIndex < count {
-            let isOffsetRow = row % 2 == 1
-            var rowMaxHeight: CGFloat = 0
-            var rowEntries: [(any GalleryTile, Int)] = []
-
-            for col in 0..<columns {
-                guard tileIndex < count else { break }
-                let tile = tiles[tileIndex]
-                let height = tileWidth / tile.aspectRatio
-                rowMaxHeight = max(rowMaxHeight, height)
-                rowEntries.append((tile, col))
-                tileIndex += 1
+        for tile in tiles {
+            // Shortest column wins; ties break to the leftmost for a stable layout.
+            var col = 0
+            for c in 1..<columns where columnBottoms[c] < columnBottoms[col] - 0.5 {
+                col = c
             }
+            let height = tileWidth / tile.aspectRatio
+            let x = vastMargin + CGFloat(col) * pitch
+            let y = columnBottoms[col]
 
-            for (tile, col) in rowEntries {
-                let height = tileWidth / tile.aspectRatio
-                let rowOffset = isOffsetRow ? horizontalPitch / 2 : 0
-                let x = spacing + rowOffset + CGFloat(col) * horizontalPitch
-                let y = rowY + (rowMaxHeight - height) / 2
-
-                placements[tile.id] = TilePlacement(
-                    frame: CGRect(x: x, y: y, width: tileWidth, height: height),
-                    rotation: .zero
-                )
-            }
-
-            rowY += verticalPitch
-            row += 1
+            placements[tile.id] = TilePlacement(
+                frame: CGRect(x: x, y: y, width: tileWidth, height: height),
+                rotation: .zero
+            )
+            columnBottoms[col] += height + spacing
         }
 
         let maxRight = placements.values.map(\.frame.maxX).max() ?? viewport.width
-        let contentWidth = max(maxRight + spacing, viewport.width * 2.5)
-        let contentHeight = max(rowY, viewport.height * 2.5)
+        let maxBottom = placements.values.map(\.frame.maxY).max() ?? viewport.height
+        let contentWidth = max(maxRight + vastMargin, viewport.width)
+        let contentHeight = max(maxBottom + vastMargin, viewport.height)
         let contentSize = CGSize(width: contentWidth, height: contentHeight)
         let initialOffset = CGPoint(
             x: (contentSize.width - viewport.width) / 2,

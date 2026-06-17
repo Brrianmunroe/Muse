@@ -29,6 +29,29 @@ struct HomeView: View {
             .animation(ImageDetailView.transition, value: isExpanded)
             .background(MuseTheme.Semantic.surfacePage.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
+            // Let the gallery draw up under the status bar so photos can pass beneath
+            // it. Applied once here (not on the canvas) so it can't feed the canvas's
+            // own size measurement into a layout loop.
+            .ignoresSafeArea(.container, edges: .top)
+        }
+        .overlay(alignment: .top) {
+            // Opaque page color at the very top edge fading to transparent, so photos
+            // appear to slide underneath the status bar / battery. Lives at the screen
+            // root (never on the canvas) and ignores touches, so it can't affect canvas
+            // sizing or gestures.
+            if displayedTileID == nil {
+                GeometryReader { proxy in
+                    LinearGradient(
+                        colors: [MuseTheme.Semantic.surfacePage, MuseTheme.Semantic.surfacePage.opacity(0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: proxy.safeAreaInsets.top + 16)
+                    .frame(maxWidth: .infinity, alignment: .top)
+                }
+                .ignoresSafeArea(.container, edges: .top)
+                .allowsHitTesting(false)
+            }
         }
         .overlay {
             Color.black
