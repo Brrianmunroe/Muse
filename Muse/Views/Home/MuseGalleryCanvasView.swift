@@ -24,16 +24,39 @@ struct MuseGalleryCanvasView: View {
     /// Canvas global frame captured at tap time, before the gallery is
     /// scaled/blurred behind the detail overlay.
     @State private var frozenCanvasFrame: CGRect = .zero
+    /// Live focal-anchored zoom state, captured at the start of a pinch so the content
+    /// under the fingers stays pinned while scaling.
+    @State private var isZooming = false
+    @State private var zoomStartScale: CGFloat = 1
+    @State private var zoomAnchorScreen: CGPoint = .zero
+    @State private var zoomAnchorContent: CGPoint = .zero
     @GestureState private var dragTranslation: CGSize = .zero
-    @GestureState private var magnifyBy: CGFloat = 1
 
     private static let settleSpring = Animation.spring(response: 0.45, dampingFraction: 1.0)
     private static let panMinimumDistance: CGFloat = 18
-    private static let minZoom: CGFloat = 1
     private static let maxZoom: CGFloat = 4
 
+    /// Scale at which the whole canvas fits inside the viewport — the "see everything"
+    /// floor. Capped at 1 so we never force an upscaled minimum.
+    private var fitZoom: CGFloat {
+        guard contentSize.width > 0, contentSize.height > 0,
+              viewport.width > 0, viewport.height > 0 else { return 1 }
+        return min(1, min(viewport.width / contentSize.width, viewport.height / contentSize.height))
+    }
+
+    private var minZoom: CGFloat { fitZoom }
+
     private var effectiveZoom: CGFloat {
-        min(max(zoomScale * magnifyBy, Self.minZoom), Self.maxZoom)
+        min(max(zoomScale, minZoom), Self.maxZoom)
+    }
+
+    /// When the scaled content is smaller than the viewport (low zoom), the extra
+    /// space is split evenly so the grid stays centered instead of pinned top-left.
+    private func centerPad(zoom: CGFloat) -> CGPoint {
+        CGPoint(
+            x: max(0, (viewport.width - contentSize.width * zoom) / 2),
+            y: max(0, (viewport.height - contentSize.height * zoom) / 2)
+        )
     }
 
     var body: some View {
@@ -51,7 +74,7 @@ struct MuseGalleryCanvasView: View {
             }
             .frame(width: geo.size.width, height: geo.size.height, alignment: .topLeading)
             .contentShape(Rectangle())
-            .gesture(selectedTileID == nil ? canvasGesture : nil)
+            .gesture(selectedTileID == nil && !isZooming ? canvasGesture : nil)
             .simultaneousGesture(selectedTileID == nil && mode == .vast ? zoomGesture : nil)
             .onAppear { configure(viewport: geo.size, animated: false) }
             .onChange(of: geo.size) { _, newSize in configure(viewport: newSize, animated: true) }
@@ -72,10 +95,11 @@ struct MuseGalleryCanvasView: View {
 
     private func tileView(_ tile: MuseTile, _ placement: TilePlacement, offset: CGPoint, zoom: CGFloat, canvasFrame: CGRect) -> some View {
         let isSelected = selectedTileID == tile.id
+        let pad = centerPad(zoom: zoom)
         let width = placement.frame.width * zoom
         let height = placement.frame.height * zoom
-        let localCenterX = (placement.frame.midX - offset.x) * zoom
-        let localCenterY = (placement.frame.midY - offset.y) * zoom
+        let localCenterX = (placement.frame.midX - offset.x) * zoom + pad.x
+        let localCenterY = (placement.frame.midY - offset.y) * zoom + pad.y
         let globalRect = CGRect(
             x: canvasFrame.minX + localCenterX - width / 2,
             y: canvasFrame.minY + localCenterY - height / 2,
@@ -129,10 +153,11 @@ struct MuseGalleryCanvasView: View {
         guard let placement = placements[id], frozenCanvasFrame != .zero else { return }
         let zoom = effectiveZoom
         let offset = displayedOffset
+        let pad = centerPad(zoom: zoom)
         let width = placement.frame.width * zoom
         let height = placement.frame.height * zoom
-        let localCenterX = (placement.frame.midX - offset.x) * zoom
-        let localCenterY = (placement.frame.midY - offset.y) * zoom
+        let localCenterX = (placement.frame.midX - offset.x) * zoom + pad.x
+        let localCenterY = (placement.frame.midY - offset.y) * zoom + pad.y
         let rect = CGRect(
             x: frozenCanvasFrame.minX + localCenterX - width / 2,
             y: frozenCanvasFrame.minY + localCenterY - height / 2,
@@ -309,9 +334,41 @@ struct MuseGalleryCanvasView: View {
     }
 
     private var zoomGesture: some Gesture {
-        MagnificationGesture()
-            .updating($magnifyBy) { value, state, _ in state = value }
-            .onEnded { value in zoomScale = min(max(zoomScale * value, Self.minZoom), Self.maxZoom) }
+        MagnifyGesture(minimumScaleDelta: 0)
+            .onChanged { value in
+                if !isZooming {
+                    isZooming = true
+                    // The pan gesture detaches mid-pinch and never fires its end
+                    // handler, so clear its "actively panning" flag here — otherwise
+                    // taps stay blocked after a zoom.
+                    canvasPanActive = false
+                    zoomStartScale = effectiveZoom
+                    let focal = value.startLocation
+                    let z = effectiveZoom
+                    let pad = centerPad(zoom: z)
+                    zoomAnchorScreen = focal
+                    // Content-space point currently sitting under the fingers.
+                    zoomAnchorContent = CGPoint(
+                        x: (focal.x - pad.x) / z + contentOffset.x,
+                        y: (focal.y - pad.y) / z + contentOffset.y
+                    )
+                }
+                let newZoom = min(max(zoomStartScale * value.magnification, minZoom), Self.maxZoom)
+                zoomScale = newZoom
+                // Re-pin the anchor point under the (fixed) focal location.
+                let pad = centerPad(zoom: newZoom)
+                let raw = CGPoint(
+                    x: zoomAnchorContent.x - (zoomAnchorScreen.x - pad.x) / newZoom,
+                    y: zoomAnchorContent.y - (zoomAnchorScreen.y - pad.y) / newZoom
+                )
+                contentOffset = hardClamped(raw, zoom: newZoom)
+            }
+            .onEnded { _ in
+                isZooming = false
+                canvasPanActive = false
+                zoomScale = min(max(zoomScale, minZoom), Self.maxZoom)
+                contentOffset = hardClamped(contentOffset, zoom: zoomScale)
+            }
     }
 
     private var displayedOffset: CGPoint {
