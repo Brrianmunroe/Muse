@@ -355,11 +355,10 @@ struct HomeView: View {
         let height: CGFloat = showing
             ? (info?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? keyboardHeight
             : 0
-        let kbDuration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
-        // ease-out = fast start (rises *with* the keyboard, no lag) decelerating
-        // into place. Dismiss runs a touch longer for a more fluid settle.
+        // Rise on a soft spring so the bar glides up alongside the keyboard and
+        // eases into its spot without a hard stop. Dismiss runs a gentle ease-out.
         let animation: Animation = showing
-            ? .easeOut(duration: max(kbDuration, 0.22))
+            ? .spring(response: 0.36, dampingFraction: 0.86)
             : .easeOut(duration: 0.25)
         withAnimation(animation) {
             keyboardHeight = height
