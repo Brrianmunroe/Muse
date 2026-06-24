@@ -96,11 +96,12 @@ struct MuseGalleryCanvasView: View {
         }
         .clipped()
         .onChange(of: mode) { oldMode, newMode in
-            if newMode != .vast { zoomScale = 1 }
             // While filtering, re-pack the matching cluster for the new mode using
             // the exact dialed spec for that mode transition (so it feels identical
-            // to a normal view switch). Otherwise run the full-board mode morph.
+            // to a normal view switch). Otherwise run the full-board mode morph,
+            // which now resets the zoom internally as part of the morph.
             if isFiltering {
+                if newMode != .vast { zoomScale = 1 }
                 applyFilter(animated: true, spec: tuning.spec(from: oldMode, to: newMode))
             } else {
                 transition(from: oldMode, to: newMode)
@@ -197,14 +198,36 @@ struct MuseGalleryCanvasView: View {
         let anchorID = currentAnchorTile(oldMode: oldMode)
         let newOffset = anchoredOffset(for: newMode, layout: layout, anchorID: anchorID)
 
-        let delta = CGPoint(x: newOffset.x - contentOffset.x, y: newOffset.y - contentOffset.y)
+        // Capture the live camera (current zoom + pan) so the morph can begin from
+        // exactly what's on screen instead of snapping to the default 1× view first.
+        // We rebase every tile into content space at zoom 1: its baked frame, when
+        // drawn at zoom 1 with the new offset, reproduces its current on-screen size
+        // and position. The "zoom out" then becomes part of the per-tile morph as
+        // those big baked frames flow down into the new layout — one continuous move.
+        let startZoom = effectiveZoom
+        let startOffset = displayedOffset
+        let startPad = centerPad(zoom: startZoom)
+        let newPad = CGPoint(
+            x: max(0, (viewport.width - layout.contentSize.width) / 2),
+            y: max(0, (viewport.height - layout.contentSize.height) / 2)
+        )
+
         var transaction = Transaction()
         transaction.disablesAnimations = true
         withTransaction(transaction) {
+            zoomScale = 1
             contentOffset = newOffset
+            contentSize = layout.contentSize
             for (id, placement) in placements {
+                let oldFrame = placement.frame
+                let onScreenCenterX = (oldFrame.midX - startOffset.x) * startZoom + startPad.x
+                let onScreenCenterY = (oldFrame.midY - startOffset.y) * startZoom + startPad.y
+                let w = oldFrame.width * startZoom
+                let h = oldFrame.height * startZoom
+                let midX = onScreenCenterX - newPad.x + newOffset.x
+                let midY = onScreenCenterY - newPad.y + newOffset.y
                 var shifted = placement
-                shifted.frame = placement.frame.offsetBy(dx: delta.x, dy: delta.y)
+                shifted.frame = CGRect(x: midX - w / 2, y: midY - h / 2, width: w, height: h)
                 placements[id] = shifted
             }
         }
@@ -226,7 +249,6 @@ struct MuseGalleryCanvasView: View {
         }
         leadTileID = leadID
 
-        contentSize = layout.contentSize
         if newMode == .feed, let anchorID, let index = tiles.firstIndex(where: { $0.id == anchorID }) {
             currentPage = index
         } else {
