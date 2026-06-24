@@ -15,6 +15,11 @@ final class LocalMuseImage {
     var tagLabels: [String]
     /// AI-generated 150–200 char design-language description. `nil` until analyzed.
     var aiDescription: String?
+    /// Controlled-vocabulary facet tags as "category:value" tokens (see Taxonomy).
+    /// Used only for filtering. Empty until analyzed.
+    var facetTags: [String] = []
+    /// When facets were last classified. `nil` gates (re)analysis + backfill.
+    var facetsAnalyzedAt: Date? = nil
     var isFavorite: Bool = false
 
     init(
@@ -28,6 +33,8 @@ final class LocalMuseImage {
         createdAt: Date = .now,
         tagLabels: [String] = [],
         aiDescription: String? = nil,
+        facetTags: [String] = [],
+        facetsAnalyzedAt: Date? = nil,
         isFavorite: Bool = false
     ) {
         self.id = id
@@ -40,6 +47,8 @@ final class LocalMuseImage {
         self.createdAt = createdAt
         self.tagLabels = tagLabels
         self.aiDescription = aiDescription
+        self.facetTags = facetTags
+        self.facetsAnalyzedAt = facetsAnalyzedAt
         self.isFavorite = isFavorite
     }
 
@@ -61,7 +70,8 @@ final class LocalMuseImage {
             localPath: localPath,
             notes: notes,
             createdAt: createdAt,
-            tagLabels: tagLabels
+            tagLabels: tagLabels,
+            facetTags: facetTags
         )
     }
 }

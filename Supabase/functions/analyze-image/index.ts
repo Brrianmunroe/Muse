@@ -9,21 +9,50 @@
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
 
+// Controlled vocabulary the model must classify each image into. MUST stay in
+// sync with Muse/Models/Taxonomy.swift — filtering relies on the model only
+// ever emitting these exact values.
+const TAXONOMY = {
+  discipline: ["architecture", "typography", "motion", "product", "graphic",
+               "fashion", "interior", "photography", "illustration"],
+  color: ["warm", "cool", "muted", "vibrant", "monochrome", "pastel", "earthy"],
+  mood: ["calm", "energetic", "playful", "serious", "elegant", "raw"],
+  style: ["minimal", "maximal", "retro", "modern", "editorial", "organic", "geometric"],
+} as const;
+
 const SYSTEM_PROMPT =
   "You are a design-vocabulary expert helping someone broaden their design " +
   "vocabulary. Describe the image in 150-200 characters using precise, " +
   "evocative design terminology — typography, color, composition, materiality, " +
   "mood, and era/movement — so the reader learns the terms to describe what " +
   "they're seeing. Be specific and avoid generic filler. Also provide 3-5 " +
-  "short design-term tags (1-3 words each, lowercase).";
+  "short design-term tags (1-3 words each, lowercase).\n\n" +
+  "Additionally, classify the image into the provided facet categories " +
+  "(discipline, color, mood, style). For each category choose ONLY from its " +
+  "allowed values — the 1-2 that fit best, or none if genuinely uncertain. " +
+  "Never invent values.";
+
+// Each facet is an enum-constrained array — the schema is the real guardrail.
+const FACETS_SCHEMA = {
+  type: "object",
+  properties: Object.fromEntries(
+    Object.entries(TAXONOMY).map(([cat, vals]) => [
+      cat,
+      { type: "array", items: { type: "string", enum: vals } },
+    ]),
+  ),
+  required: Object.keys(TAXONOMY),
+  additionalProperties: false,
+};
 
 const RESPONSE_SCHEMA = {
   type: "object",
   properties: {
     description: { type: "string" },
     tags: { type: "array", items: { type: "string" } },
+    facets: FACETS_SCHEMA,
   },
-  required: ["description", "tags"],
+  required: ["description", "tags", "facets"],
   additionalProperties: false,
 };
 
@@ -96,12 +125,20 @@ Deno.serve(async (req) => {
   const text = data?.content?.find((b: { type: string }) => b.type === "text")?.text;
   if (!text) return json({ error: "no content returned" }, 502);
 
-  let parsed: { description: string; tags: string[] };
+  let parsed: {
+    description: string;
+    tags: string[];
+    facets: Record<string, string[]>;
+  };
   try {
     parsed = JSON.parse(text);
   } catch {
     return json({ error: "could not parse model output", raw: text }, 502);
   }
 
-  return json({ description: parsed.description, tags: parsed.tags ?? [] });
+  return json({
+    description: parsed.description,
+    tags: parsed.tags ?? [],
+    facets: parsed.facets ?? {},
+  });
 });
