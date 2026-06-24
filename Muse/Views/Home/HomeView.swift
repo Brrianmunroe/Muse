@@ -15,7 +15,80 @@ struct HomeView: View {
     @StateObject private var tuning = MorphTuning()
     @State private var showImagePicker = false
 
+    // Filtering / search state.
+    @State private var activeFacets: Set<String> = []
+    @State private var sortOrder: GallerySortOrder = .recency
+    @State private var searchText: String = ""
+    @State private var showSearch = false
+    @State private var showViewPopover = false
+    @State private var keyboardHeight: CGFloat = 0
+    @FocusState private var searchFieldFocused: Bool
+
+    /// The full, unfiltered tile set — the canvas keeps all tiles so filtered-out
+    /// ones can fade in place rather than vanish.
     private var tiles: [MuseTile] { images.map(\.asTile) }
+
+    private var hasActiveFilters: Bool { !activeFacets.isEmpty || !searchText.isEmpty }
+
+    /// IDs that pass the current filter in sort/rank order, or `nil` when nothing
+    /// is filtering.
+    private var orderedVisibleIDs: [Int]? {
+        guard hasActiveFilters else { return nil }
+        return filteredImages.map(\.intID)
+    }
+
+    /// Pipeline: locked-tag filter (smart) → free-text fuzzy rank → sort.
+    private var filteredImages: [LocalMuseImage] {
+        var result = images
+
+        // Facet filter — OR within a category, AND across categories.
+        if !activeFacets.isEmpty {
+            let byCategory = Dictionary(grouping: activeFacets) { Taxonomy.parse($0)?.category }
+            result = result.filter { image in
+                byCategory.allSatisfy { category, tokens in
+                    category == nil || tokens.contains { image.facetTags.contains($0) }
+                }
+            }
+        }
+
+        // Free text: when present it both filters and ranks by overlap;
+        // otherwise honor the chosen sort order.
+        let words = searchText.lowercased().split(separator: " ").map(String.init).filter { !$0.isEmpty }
+        guard !words.isEmpty else { return sortedImages(result) }
+        return result
+            .map { (image: $0, score: overlap($0, words)) }
+            .filter { $0.score > 0 }
+            .sorted { $0.score > $1.score }
+            .map(\.image)
+    }
+
+    /// Count of query words that match a card's tags, description, or notes.
+    private func overlap(_ image: LocalMuseImage, _ words: [String]) -> Int {
+        let haystack = (image.tagLabels + image.facetTags.map { Taxonomy.value(of: $0) }).map { $0.lowercased() }
+        let text = ((image.aiDescription ?? "") + " " + image.notes).lowercased()
+        return words.reduce(0) { acc, w in
+            let hit = haystack.contains { $0.contains(w) || w.contains($0) } || text.contains(w)
+            return acc + (hit ? 1 : 0)
+        }
+    }
+
+    private func sortedImages(_ arr: [LocalMuseImage]) -> [LocalMuseImage] {
+        switch sortOrder {
+        case .recency: return arr.sorted { $0.createdAt > $1.createdAt }
+        case .oldest:  return arr.sorted { $0.createdAt < $1.createdAt }
+        case .discipline, .color:
+            guard let cat = sortOrder.groupingCategory else { return arr }
+            return arr.sorted {
+                let a = facetValue($0, cat) ?? "~"
+                let b = facetValue($1, cat) ?? "~"
+                return a == b ? $0.createdAt > $1.createdAt : a < b
+            }
+        }
+    }
+
+    private func facetValue(_ image: LocalMuseImage, _ category: FacetCategory) -> String? {
+        image.facetTags.lazy.compactMap { Taxonomy.parse($0) }.first { $0.category == category }?.value
+    }
 
     var body: some View {
         NavigationStack {
@@ -87,11 +160,47 @@ struct HomeView: View {
                 importImage(image)
             }
         }
-        .onAppear { importPendingShares() }
+        .onAppear {
+            importPendingShares()
+            backfillFacets()
+        }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { importPendingShares() }
+            if phase == .active {
+                importPendingShares()
+                backfillFacets()
+            }
         }
     }
+
+    /// Backfill controlled facet tags onto images saved before tagging existed.
+    /// `analyzeIfNeeded` dedupes in-flight work; we cap each pass to a handful so
+    /// a large library doesn't fire a burst of edge-function calls at once.
+    private func backfillFacets() {
+        guard SupabaseService.shared.isConfigured else {
+            #if DEBUG
+            seedDemoFacets()  // simulator without keys → fake tags so filters work
+            #endif
+            return
+        }
+        let pending = images.filter { $0.facetsAnalyzedAt == nil }
+        for image in pending.prefix(4) {
+            ImageAnalysisService.analyzeIfNeeded(image, context: modelContext)
+        }
+    }
+
+    #if DEBUG
+    /// Assigns deterministic placeholder facets to untagged images so the filter
+    /// can be exercised in the simulator. Never runs in release.
+    private func seedDemoFacets() {
+        let untagged = images.filter { $0.facetTags.isEmpty }
+        guard !untagged.isEmpty else { return }
+        for image in untagged {
+            image.facetTags = Taxonomy.demoTags(seed: image.intID)
+            image.facetsAnalyzedAt = .now
+        }
+        try? modelContext.save()
+    }
+    #endif
 
     /// Save an image into the gallery and start its AI description, exactly the
     /// same path whether it came from the picker or the share extension.
@@ -140,25 +249,129 @@ struct HomeView: View {
                 mode: $layoutMode,
                 selectedTileID: $displayedTileID,
                 tiles: tiles,
+                orderedVisibleIDs: orderedVisibleIDs,
                 onSelectTile: openTile,
                 onSelectedTileFrame: { sourceFrame = $0 },
                 tuning: tuning
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            if displayedTileID == nil {
-                ZStack {
-                    GalleryModeToggle(mode: $layoutMode)
-
-                    HStack {
-                        Spacer()
-                        addButton
+            .overlay {
+                if hasActiveFilters && filteredImages.isEmpty {
+                    VStack(spacing: 8) {
+                        Text("No matches")
+                            .font(MuseTheme.serif(22))
+                            .foregroundStyle(MuseTheme.Semantic.textHeading)
+                        Text("Try removing a filter")
+                            .font(.subheadline)
+                            .foregroundStyle(MuseTheme.Semantic.textSecondary)
                     }
+                    .transition(.opacity)
+                }
+            }
+
+            // Subtle scrim while searching; tap it to dismiss.
+            if showSearch {
+                Color.black.opacity(0.12)
+                    .ignoresSafeArea()
+                    .onTapGesture { searchFieldFocused = false }
+                    .transition(.opacity)
+            }
+
+            // Fixed buttons — Add (leading) and View (trailing). They never move or
+            // fade; the keyboard simply covers and reveals them.
+            if displayedTileID == nil {
+                HStack {
+                    addButton
+                    Spacer()
+                    viewButton
                 }
                 .padding(.horizontal, 20)
                 .padding(.bottom, 12)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .ignoresSafeArea(.keyboard, edges: .bottom)
             }
+
+            // The single search bar + its suggestions card. One bottom-anchored
+            // stack the keyboard lifts (manual offset) so the bar's rise and
+            // stretch ride a single clock and land at the right size/place.
+            if displayedTileID == nil {
+                VStack(spacing: 10) {
+                    if showSearch {
+                        SearchFilterView(searchText: $searchText, activeFacets: $activeFacets)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                    searchBar
+                        .padding(.horizontal, showSearch ? 0 : 72)
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .offset(y: -keyboardOverlap)
+            }
+        }
+        // Opt the whole gallery out of keyboard avoidance so the buttons never move
+        // and the search bar rises only by its single manual offset (no double rise).
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        // Tap-catcher that dismisses the view popover.
+        .overlay {
+            if showViewPopover && displayedTileID == nil {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { showViewPopover = false } }
+            }
+        }
+        // View-mode popover rising out of the View button.
+        .overlay(alignment: .bottomTrailing) {
+            if showViewPopover && displayedTileID == nil && !showSearch {
+                viewPopover
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 80)
+                    .transition(.scale(scale: 0.85, anchor: .bottomTrailing).combined(with: .opacity))
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
+            handleKeyboard(note, showing: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { note in
+            handleKeyboard(note, showing: false)
+        }
+    }
+
+    /// How far the search bar lifts to sit 16pt above the keyboard. (The bar
+    /// already has 12pt bottom padding, so add 4 to reach a 16pt gap.)
+    private var keyboardOverlap: CGFloat {
+        keyboardHeight <= 0 ? 0 : max(0, keyboardHeight - bottomSafeInset + 4)
+    }
+
+    private var bottomSafeInset: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap { $0.windows }
+            .first { $0.isKeyWindow }?.safeAreaInsets.bottom ?? 0
+    }
+
+    /// Drives the bar's rise + stretch off the keyboard's own show/hide — its
+    /// duration (so they're in lockstep) but our view-switch easing curve.
+    private func handleKeyboard(_ note: Notification, showing: Bool) {
+        let info = note.userInfo
+        let height: CGFloat = showing
+            ? (info?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? keyboardHeight
+            : 0
+        let kbDuration = (info?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double) ?? 0.25
+        // ease-out = fast start (rises *with* the keyboard, no lag) decelerating
+        // into place. Dismiss runs a touch longer for a more fluid settle.
+        let animation: Animation = showing
+            ? .easeOut(duration: max(kbDuration, 0.22))
+            : .easeOut(duration: 0.25)
+        withAnimation(animation) {
+            keyboardHeight = height
+            showSearch = showing
+            if showing { showViewPopover = false }
+        }
+    }
+
+    private func clearAllFilters() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            activeFacets.removeAll()
+            searchText = ""
         }
     }
 
@@ -206,6 +419,158 @@ struct HomeView: View {
                 .overlay(Circle().stroke(MuseTheme.Semantic.dividerDefault, lineWidth: 1))
                 .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
         }
+    }
+
+    /// The resting search + filter capsule. Shows a placeholder when idle, or the
+    /// active filter pills + a clear-all ✕ when filtering. Tapping it (anywhere but
+    /// a pill or the ✕) lifts into the keyboard-docked typing bar.
+    private var sortedActiveFacets: [String] {
+        activeFacets.sorted { Taxonomy.value(of: $0) < Taxonomy.value(of: $1) }
+    }
+
+    /// A removable filter pill — lives *inside* the search bar so it rides the
+    /// bar's morph as part of the same element.
+    private func facetChip(_ token: String) -> some View {
+        Button { withAnimation(.easeInOut(duration: 0.2)) { _ = activeFacets.remove(token) } } label: {
+            HStack(spacing: 4) {
+                Text(Taxonomy.value(of: token)).font(.system(size: 13, weight: .medium))
+                Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).opacity(0.55)
+            }
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(MuseTheme.Alias.fillTintNeutral, in: Capsule())
+            .foregroundStyle(MuseTheme.Alias.textOnTintNeutral)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The single search bar — one capsule that morphs between resting and active.
+    /// Active-filter pills live inside it (a token field) so they travel with the
+    /// bar through the transition; the field placeholder stays "Search inspiration".
+    private var searchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(MuseTheme.Semantic.iconDefault)
+
+            // One stable token field: pills (a ForEach) then a persistent field.
+            // Keeping the field in the same structural slot means adding a chip
+            // doesn't rebuild it, so focus (and the keyboard) is never lost.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(sortedActiveFacets, id: \.self) { token in
+                        facetChip(token)
+                    }
+                    searchField(placeholder: activeFacets.isEmpty ? "Search inspiration" : "")
+                        .frame(minWidth: 160)
+                }
+            }
+            // Hug content height so it stays vertically centered (otherwise the
+            // scroll view fills the bar and the trailing button looks like it floats low).
+            .fixedSize(horizontal: false, vertical: true)
+
+            // Stable trailing slot — always present so it rides the bar's offset
+            // (never pops to the bottom). Chevron when active, clear-✕ when resting
+            // with filters, cross-faded in place.
+            ZStack {
+                Button { searchFieldFocused = false } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(MuseTheme.Semantic.iconDefault)
+                        .frame(width: 28, height: 28)
+                }
+                .opacity(showSearch ? 1 : 0)
+                .allowsHitTesting(showSearch)
+
+                Button { clearAllFilters() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(MuseTheme.Semantic.textSecondary)
+                        .frame(width: 24, height: 24)
+                        .background(MuseTheme.Semantic.surfacePage, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .opacity((!showSearch && hasActiveFilters) ? 1 : 0)
+                .allowsHitTesting(!showSearch && hasActiveFilters)
+            }
+            .frame(width: 28, height: 28)
+            .opacity(showSearch || hasActiveFilters ? 1 : 0)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 56)
+        .frame(maxWidth: .infinity)
+        .background(MuseTheme.Semantic.surfaceCard, in: Capsule())
+        .overlay(Capsule().stroke(MuseTheme.Semantic.dividerDefault, lineWidth: 1))
+        .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
+        .contentShape(Capsule())
+        .onTapGesture { if !showSearch { searchFieldFocused = true } }
+    }
+
+    private func searchField(placeholder: String) -> some View {
+        TextField(placeholder, text: $searchText)
+            .font(.system(size: 16))
+            .foregroundStyle(MuseTheme.Semantic.textBody)
+            .focused($searchFieldFocused)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .submitLabel(.search)
+    }
+
+    /// Solo floating View button → opens the mode popover. Shows the current mode.
+    private var viewButton: some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { showViewPopover.toggle() }
+        } label: {
+            Image(systemName: layoutMode.iconName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(showViewPopover ? MuseTheme.Semantic.surfacePage : MuseTheme.Semantic.iconDefault)
+                .frame(width: 56, height: 56)
+                .background(
+                    showViewPopover ? MuseTheme.Semantic.textHeading : MuseTheme.Semantic.surfaceCard,
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(MuseTheme.Semantic.dividerDefault, lineWidth: showViewPopover ? 0 : 1)
+                )
+                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+        }
+    }
+
+    /// The little window that pops up out of the View button.
+    private var viewPopover: some View {
+        VStack(spacing: 2) {
+            ForEach(GalleryLayoutMode.allCases) { m in
+                Button {
+                    layoutMode = m
+                    withAnimation(.easeInOut(duration: 0.2)) { showViewPopover = false }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: m.iconName).font(.system(size: 15)).frame(width: 20)
+                        Text(m.label).font(.system(size: 15, weight: m == layoutMode ? .semibold : .regular))
+                        Spacer()
+                        if m == layoutMode {
+                            Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold))
+                        }
+                    }
+                    .foregroundStyle(m == layoutMode ? MuseTheme.Semantic.textHeading : MuseTheme.Semantic.textSecondary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 11)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        m == layoutMode ? MuseTheme.Semantic.surfacePage : Color.clear,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(5)
+        .frame(width: 188)
+        .background(MuseTheme.Semantic.surfaceCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(MuseTheme.Semantic.dividerDefault, lineWidth: 1))
+        .shadow(color: .black.opacity(0.16), radius: 22, y: 8)
     }
 
     private var emptyState: some View {

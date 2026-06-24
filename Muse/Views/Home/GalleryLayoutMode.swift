@@ -50,6 +50,8 @@ struct MuseTile: GalleryTile, Equatable {
     let notes: String
     let createdAt: Date
     let tagLabels: [String]
+    /// Controlled facet tokens ("category:value") for filtering. See Taxonomy.
+    let facetTags: [String]
 }
 
 /// Placeholder content tile used until real images are wired in.

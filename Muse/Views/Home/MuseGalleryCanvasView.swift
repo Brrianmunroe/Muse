@@ -6,6 +6,9 @@ struct MuseGalleryCanvasView: View {
     @Binding var mode: GalleryLayoutMode
     @Binding var selectedTileID: Int?
     let tiles: [MuseTile]
+    /// Filtered tile IDs in display (sort/rank) order, or `nil` when no filter is
+    /// on. Matching tiles condense to a centered cluster; the rest fade in place.
+    var orderedVisibleIDs: [Int]? = nil
     var onSelectTile: (Int, CGRect) -> Void
     /// Reports where the currently-selected tile sits, so the detail overlay
     /// can dismiss back to the right spot after swiping to another photo.
@@ -13,6 +16,8 @@ struct MuseGalleryCanvasView: View {
     @ObservedObject var tuning: MorphTuning
 
     @State private var placements: [Int: TilePlacement] = [:]
+    /// Per-tile opacity driven by filtering (1 = matching/unfiltered, ~0 = filtered out).
+    @State private var tileOpacity: [Int: CGFloat] = [:]
     @State private var contentSize: CGSize = .zero
     @State private var contentOffset: CGPoint = .zero
     @State private var blurAmounts: [Int: CGFloat] = [:]
@@ -45,6 +50,10 @@ struct MuseGalleryCanvasView: View {
     }
 
     private var minZoom: CGFloat { fitZoom }
+
+    private var isFiltering: Bool { orderedVisibleIDs != nil }
+
+    private var visibleIDSet: Set<Int>? { orderedVisibleIDs.map(Set.init) }
 
     private var effectiveZoom: CGFloat {
         min(max(zoomScale, minZoom), Self.maxZoom)
@@ -79,6 +88,7 @@ struct MuseGalleryCanvasView: View {
             .onAppear { configure(viewport: geo.size, animated: false) }
             .onChange(of: geo.size) { _, newSize in configure(viewport: newSize, animated: true) }
             .onChange(of: tiles.count) { _, _ in configure(viewport: viewport, animated: false) }
+            .onChange(of: orderedVisibleIDs) { _, _ in applyFilter(animated: true) }
             .onChange(of: selectedTileID) { _, newID in
                 guard let newID else { return }
                 publishSelectedTileFrame(for: newID)
@@ -87,7 +97,14 @@ struct MuseGalleryCanvasView: View {
         .clipped()
         .onChange(of: mode) { oldMode, newMode in
             if newMode != .vast { zoomScale = 1 }
-            transition(from: oldMode, to: newMode)
+            // While filtering, re-pack the matching cluster for the new mode using
+            // the exact dialed spec for that mode transition (so it feels identical
+            // to a normal view switch). Otherwise run the full-board mode morph.
+            if isFiltering {
+                applyFilter(animated: true, spec: tuning.spec(from: oldMode, to: newMode))
+            } else {
+                transition(from: oldMode, to: newMode)
+            }
         }
     }
 
@@ -111,8 +128,10 @@ struct MuseGalleryCanvasView: View {
             if !isSelected {
                 tileContent(tile, placement, zoom: zoom)
                     .contentShape(Rectangle())
+                    .allowsHitTesting((tileOpacity[tile.id] ?? 1) > 0.4)
                     .onTapGesture {
-                        guard selectedTileID == nil, !canvasPanActive else { return }
+                        guard selectedTileID == nil, !canvasPanActive,
+                              (tileOpacity[tile.id] ?? 1) > 0.4 else { return }
                         frozenCanvasFrame = canvasFrame
                         onSelectTile(tile.id, globalRect)
                     }
@@ -145,6 +164,7 @@ struct MuseGalleryCanvasView: View {
         .rotationEffect(placement.rotation)
         .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
         .blur(radius: blurAmounts[tile.id] ?? 0)
+        .opacity(tileOpacity[tile.id] ?? 1)
     }
 
     /// Recomputes the selected tile's global frame from layout state — same math
@@ -311,6 +331,166 @@ struct MuseGalleryCanvasView: View {
             contentOffset = layout.initialOffset
             currentPage = 0
         }
+
+        // Re-establish the filtered cluster after a (re)layout, e.g. on rotation.
+        if isFiltering { applyFilter(animated: false) }
+    }
+
+    // MARK: - Magnetic filter
+
+    /// Condense the matching tiles into a cluster at the current viewport center
+    /// (vast) or re-pack just the matches (bento/feed); fade the rest. When the
+    /// filter clears, expand everything back to the full layout.
+    /// Reuses the existing dialed mode-morph specs for filter motion, so filtering
+    /// feels exactly like switching views. Condense borrows vast→bento (gathering
+    /// into a denser arrangement); expand borrows bento→vast (opening back out).
+    private func reuseFilterSpec(condensing: Bool) -> MorphSpec {
+        condensing ? tuning.spec(from: .vast, to: .bento)
+                   : tuning.spec(from: .bento, to: .vast)
+    }
+
+    private func applyFilter(animated: Bool, spec overrideSpec: MorphSpec? = nil) {
+        guard viewport.width > 50, viewport.height > 50, !placements.isEmpty else { return }
+        let condensing = orderedVisibleIDs != nil
+        let spec = overrideSpec ?? reuseFilterSpec(condensing: condensing)
+        leadTileID = nil
+
+        var target: [Int: TilePlacement] = [:]
+        var opacityTargets: [Int: CGFloat] = [:]
+
+        if let order = orderedVisibleIDs, let visibleIDs = visibleIDSet {
+            // Pack the cluster in the filter's sort/rank order.
+            let byID = Dictionary(tiles.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let visibleTiles = order.compactMap { byID[$0] }
+            let sub = GalleryLayoutEngine.layout(mode: mode, tiles: visibleTiles, viewport: viewport)
+
+            if mode == .vast {
+                // Keep the full-board bounds so panning still works, then drop the
+                // packed cluster onto the point the user is currently looking at.
+                let fullVast = GalleryLayoutEngine.layout(mode: .vast, tiles: tiles, viewport: viewport)
+                if contentSize != fullVast.contentSize {
+                    contentSize = fullVast.contentSize
+                    contentOffset = clampToContent(contentOffset, contentSize: contentSize)
+                }
+                let center = currentViewportCenterContent()
+                let bbox = boundingBox(of: Array(sub.placements.values))
+                let dx = center.x - bbox.midX
+                let dy = center.y - bbox.midY
+                for (id, p) in sub.placements {
+                    target[id] = TilePlacement(frame: p.frame.offsetBy(dx: dx, dy: dy), rotation: p.rotation)
+                    opacityTargets[id] = 1
+                }
+                for tile in tiles where !visibleIDs.contains(tile.id) {
+                    target[tile.id] = placements[tile.id] ?? .zero   // stay put, fade out
+                    opacityTargets[tile.id] = 0.06
+                }
+            } else {
+                for (id, p) in sub.placements {
+                    target[id] = p
+                    opacityTargets[id] = 1
+                }
+                for tile in tiles where !visibleIDs.contains(tile.id) {
+                    target[tile.id] = placements[tile.id] ?? .zero
+                    opacityTargets[tile.id] = 0
+                }
+                setContentBounds(to: sub.contentSize, animated: animated, spec: spec)
+            }
+        } else {
+            // Expand: everything returns to the full base layout, fully opaque.
+            let full = GalleryLayoutEngine.layout(mode: mode, tiles: tiles, viewport: viewport)
+            target = full.placements
+            for tile in tiles { opacityTargets[tile.id] = 1 }
+            if mode != .vast {
+                setContentBounds(to: full.contentSize, animated: animated, spec: spec)
+            }
+        }
+
+        if animated {
+            withAnimation(.easeOut(duration: 0.3)) {
+                for (id, o) in opacityTargets { tileOpacity[id] = o }
+            }
+            morphPlacements(to: target, spec: spec)
+        } else {
+            for (id, o) in opacityTargets { tileOpacity[id] = o }
+            for (id, tp) in target { placements[id] = tp }
+        }
+    }
+
+    private func setContentBounds(to newSize: CGSize, animated: Bool, spec: MorphSpec) {
+        let newOffset = clampToContent(contentOffset, contentSize: newSize)
+        if animated {
+            withAnimation(.timingCurve(spec.c1x, spec.c1y, spec.c2x, spec.c2y, duration: spec.duration)) {
+                contentSize = newSize
+                contentOffset = newOffset
+            }
+        } else {
+            contentSize = newSize
+            contentOffset = newOffset
+        }
+    }
+
+    /// Per-tile trip-scaled morph toward `target`, mirroring the mode-transition
+    /// choreography (staggered response + motion-blur pulse).
+    private func morphPlacements(to target: [Int: TilePlacement], spec: MorphSpec) {
+        var trips: [Int: CGFloat] = [:]
+        var distances: [Int: CGFloat] = [:]
+        var maxTrip: CGFloat = 1
+        for tile in tiles {
+            let oldFrame = placements[tile.id]?.frame ?? .zero
+            let newFrame = target[tile.id]?.frame ?? oldFrame
+            let distance = hypot(newFrame.midX - oldFrame.midX, newFrame.midY - oldFrame.midY)
+            distances[tile.id] = distance
+            let trip = distance + abs(newFrame.width - oldFrame.width)
+            trips[tile.id] = trip
+            maxTrip = max(maxTrip, trip)
+        }
+
+        func response(forTrip trip: CGFloat) -> Double {
+            spec.duration + spec.range * Double(min(trip / max(viewport.height, 1), 1))
+        }
+        func morphAnimation(_ r: Double) -> Animation {
+            spec.wiggle > 0.001
+                ? .spring(response: r, dampingFraction: 1 - spec.wiggle)
+                : .timingCurve(spec.c1x, spec.c1y, spec.c2x, spec.c2y, duration: r)
+        }
+
+        for tile in tiles {
+            guard let tp = target[tile.id] else { continue }
+            let trip = trips[tile.id] ?? 0
+            let delay = Double(trip / maxTrip) * spec.stagger
+            let r = response(forTrip: trip)
+
+            withAnimation(morphAnimation(r).delay(delay)) {
+                placements[tile.id] = tp
+            }
+
+            let peakBlur = min(CGFloat(spec.blurPeak), (distances[tile.id] ?? 0) / 110)
+            if peakBlur > 0.5 {
+                withAnimation(.easeIn(duration: r * 0.3).delay(delay)) { blurAmounts[tile.id] = peakBlur }
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay + r * 0.55) {
+                    withAnimation(.easeOut(duration: r * 0.7)) { blurAmounts[tile.id] = 0 }
+                }
+            }
+        }
+    }
+
+    /// The content-space point currently under the centre of the viewport.
+    private func currentViewportCenterContent() -> CGPoint {
+        let zoom = effectiveZoom
+        let pad = centerPad(zoom: zoom)
+        return CGPoint(
+            x: (viewport.width / 2 - pad.x) / zoom + contentOffset.x,
+            y: (viewport.height / 2 - pad.y) / zoom + contentOffset.y
+        )
+    }
+
+    private func boundingBox(of placements: [TilePlacement]) -> CGRect {
+        guard !placements.isEmpty else { return .zero }
+        let minX = placements.map { $0.frame.minX }.min() ?? 0
+        let minY = placements.map { $0.frame.minY }.min() ?? 0
+        let maxX = placements.map { $0.frame.maxX }.max() ?? 0
+        let maxY = placements.map { $0.frame.maxY }.max() ?? 0
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
     // MARK: - Gestures
