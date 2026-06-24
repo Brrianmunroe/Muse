@@ -379,6 +379,9 @@ struct MuseGalleryCanvasView: View {
 
         var target: [Int: TilePlacement] = [:]
         var opacityTargets: [Int: CGFloat] = [:]
+        // On expand, the tiles the filter had hidden should reappear *after* the
+        // matches have spread back to their home spots — not at the same instant.
+        var delayedFadeIn: Set<Int> = []
 
         if let order = orderedVisibleIDs, let visibleIDs = visibleIDSet {
             // Pack the cluster in the filter's sort/rank order.
@@ -403,8 +406,8 @@ struct MuseGalleryCanvasView: View {
                     opacityTargets[id] = 1
                 }
                 for tile in tiles where !visibleIDs.contains(tile.id) {
-                    target[tile.id] = placements[tile.id] ?? .zero   // stay put, fade out
-                    opacityTargets[tile.id] = 0.06
+                    target[tile.id] = placements[tile.id] ?? .zero   // stay put, fade fully out
+                    opacityTargets[tile.id] = 0
                 }
             } else {
                 for (id, p) in sub.placements {
@@ -422,16 +425,26 @@ struct MuseGalleryCanvasView: View {
             let full = GalleryLayoutEngine.layout(mode: mode, tiles: tiles, viewport: viewport)
             target = full.placements
             for tile in tiles { opacityTargets[tile.id] = 1 }
+            // Tiles that were faded out by the filter wait to fade back in until
+            // the matches have started spreading apart.
+            delayedFadeIn = Set(tiles.map(\.id).filter { (tileOpacity[$0] ?? 1) < 0.5 })
             if mode != .vast {
                 setContentBounds(to: full.contentSize, animated: animated, spec: spec)
             }
         }
 
         if animated {
+            // Matches move (and stay opaque) right away; the previously-hidden
+            // tiles hold at zero until the spread is underway, then fade in.
             withAnimation(.easeOut(duration: 0.3)) {
-                for (id, o) in opacityTargets { tileOpacity[id] = o }
+                for (id, o) in opacityTargets where !delayedFadeIn.contains(id) { tileOpacity[id] = o }
             }
             morphPlacements(to: target, spec: spec)
+            if !delayedFadeIn.isEmpty {
+                withAnimation(.easeOut(duration: 0.35).delay(0.22)) {
+                    for id in delayedFadeIn { tileOpacity[id] = 1 }
+                }
+            }
         } else {
             for (id, o) in opacityTargets { tileOpacity[id] = o }
             for (id, tp) in target { placements[id] = tp }
