@@ -107,9 +107,15 @@ final class ShareViewController: UIViewController {
             let images = await download(mediaURLs)
             if !images.isEmpty { return images }
         }
-        // 2. A direct link to an image file (some browsers, "copy image address").
+        // 2. An Instagram post: read the photo from its public embed page.
+        if let code = InstagramMedia.shortcode(in: url) {
+            let mediaURLs = await InstagramMedia.imageURLs(forShortcode: code)
+            let images = await download(mediaURLs)
+            if !images.isEmpty { return images }
+        }
+        // 3. A direct link to an image file (some browsers, "copy image address").
         if let image = await download(url) { return [image] }
-        // 3. Any other web page: use its social-preview image, if it has one.
+        // 4. Any other web page: use its social-preview image, if it has one.
         if let preview = await OpenGraph.imageURL(forPage: url),
            let image = await download(preview) {
             return [image]
@@ -269,6 +275,74 @@ enum TweetMedia {
         var result = String(integerChars)
         if !fractionChars.isEmpty { result += "." + String(fractionChars) }
         return result
+    }
+}
+
+/// Pulls a public Instagram post's photo out of the same embed page that powers
+/// "embed this post" widgets across the web — no login, no API keys, no Meta
+/// developer app. We read the post's *embed* page rather than the normal post
+/// page on purpose: the normal page now often throws a login wall at anyone
+/// signed out, while the embed page stays public by design.
+///
+/// Limits we accept for now: this reaches only *public* posts, and only their
+/// still image. Private accounts, stories and login-walled posts have nothing
+/// here; a multi-photo carousel gives up just its first picture. A reel resolves
+/// to its cover frame, which is fine as a photo tile. The video file itself
+/// lives on this same page — wiring it up later is "read one more field", not a
+/// rebuild — but we deliberately ignore it for now.
+enum InstagramMedia {
+
+    /// The shortcode from a post link, e.g. .../p/Cx1Ab2Cd3/ → "Cx1Ab2Cd3".
+    /// Recognises the post, reel and IGTV link shapes — all expose the same embed.
+    static func shortcode(in url: URL) -> String? {
+        guard let host = url.host?.lowercased(),
+              host == "instagram.com" || host.hasSuffix(".instagram.com")
+        else { return nil }
+        let parts = url.pathComponents
+        for marker in ["p", "reel", "reels", "tv"] {
+            if let i = parts.firstIndex(of: marker), i + 1 < parts.count,
+               !parts[i + 1].isEmpty {
+                return parts[i + 1]
+            }
+        }
+        return nil
+    }
+
+    /// The post's full-resolution photo, read from its public embed page.
+    static func imageURLs(forShortcode code: String) async -> [URL] {
+        let endpoint = "https://www.instagram.com/p/\(code)/embed/captioned/"
+        guard let url = URL(string: endpoint),
+              let (data, _) = try? await URLSession.shared.data(for: ShareViewController.request(url)),
+              let html = String(data: data, encoding: .utf8)
+        else { return [] }
+
+        // Preferred: the original image URL embedded in the page's JSON payload.
+        if let raw = firstMatch(#""display_url":"([^"]+)""#, in: html),
+           let imageURL = URL(string: unescape(raw)) {
+            return [imageURL]
+        }
+        // Fallback: the <img> the embed actually renders on screen.
+        if let raw = firstMatch(#"class="EmbeddedMediaImage"[^>]+src="([^"]+)""#, in: html),
+           let imageURL = URL(string: unescape(raw)) {
+            return [imageURL]
+        }
+        return []
+    }
+
+    /// Undo the escaping Instagram applies inside its embedded JSON: `\/` for
+    /// slashes and `&`/`&amp;` for the ampersands between query parameters.
+    private static func unescape(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\/", with: "/")
+         .replacingOccurrences(of: "\\u0026", with: "&")
+         .replacingOccurrences(of: "&amp;", with: "&")
+    }
+
+    private static func firstMatch(_ pattern: String, in html: String) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
+        let range = NSRange(html.startIndex..., in: html)
+        guard let match = regex.firstMatch(in: html, range: range),
+              let r = Range(match.range(at: 1), in: html) else { return nil }
+        return String(html[r])
     }
 }
 
