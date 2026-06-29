@@ -20,9 +20,10 @@ struct HomeView: View {
     @State private var sortOrder: GallerySortOrder = .recency
     @State private var searchText: String = ""
     @State private var showSearch = false
-    @State private var showViewPopover = false
     @State private var keyboardHeight: CGFloat = 0
     @FocusState private var searchFieldFocused: Bool
+    /// Shared so the nav bar morphs into the search field and back.
+    @Namespace private var navMorph
 
     /// The full, unfiltered tile set — the canvas keeps all tiles so filtered-out
     /// ones can fade in place rather than vanish.
@@ -277,62 +278,41 @@ struct HomeView: View {
                     .transition(.opacity)
             }
 
-            // Fixed buttons — Add (leading) and View (trailing). They never move or
-            // fade; the keyboard simply covers and reveals them.
-            if displayedTileID == nil {
-                HStack {
-                    addButton
-                    Spacer()
-                    viewButton
-                }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 12)
-                .ignoresSafeArea(.keyboard, edges: .bottom)
-            }
-
-            // The single search bar + its suggestions card. One bottom-anchored
-            // stack the keyboard lifts (manual offset) so the bar's rise and
-            // stretch ride a single clock and land at the right size/place.
+            // The bottom bar. At rest it's the consolidated nav pill; tapping
+            // search morphs it (shared namespace) into the keyboard-docked search
+            // field + suggestions card. One bottom-anchored stack the keyboard
+            // lifts (manual offset) so the rise and stretch ride a single clock.
             if displayedTileID == nil {
                 VStack(spacing: 10) {
                     if showSearch {
                         SearchFilterView(searchText: $searchText, activeFacets: $activeFacets)
                             .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        searchBar
+                    } else {
+                        MuseNavBar(
+                            layoutMode: $layoutMode,
+                            namespace: navMorph,
+                            onAdd: { showImagePicker = true },
+                            onSearch: { openSearch() }
+                        )
                     }
-                    searchBar
-                        .padding(.horizontal, showSearch ? 0 : 72)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
                 .offset(y: -keyboardOverlap)
             }
         }
-        // Opt the whole gallery out of keyboard avoidance so the buttons never move
+        // Opt the whole gallery out of keyboard avoidance so the bar never moves
         // and the search bar rises only by its single manual offset (no double rise).
         .ignoresSafeArea(.keyboard, edges: .bottom)
-        // Tap-catcher that dismisses the view popover.
-        .overlay {
-            if showViewPopover && displayedTileID == nil {
-                Color.black.opacity(0.001)
-                    .ignoresSafeArea()
-                    .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { showViewPopover = false } }
-            }
-        }
-        // View-mode popover rising out of the View button.
-        .overlay(alignment: .bottomTrailing) {
-            if showViewPopover && displayedTileID == nil && !showSearch {
-                viewPopover
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 80)
-                    .transition(.scale(scale: 0.85, anchor: .bottomTrailing).combined(with: .opacity))
-            }
-        }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
             handleKeyboard(note, showing: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { note in
             handleKeyboard(note, showing: false)
         }
+        // A light tick as the search field opens / closes.
+        .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: showSearch)
     }
 
     /// How far the search bar lifts to sit 16pt above the keyboard. (The bar
@@ -348,6 +328,15 @@ struct HomeView: View {
             .first { $0.isKeyWindow }?.safeAreaInsets.bottom ?? 0
     }
 
+    /// Open search from the nav bar. The search field only exists while
+    /// `showSearch` is true, so render it first, then focus on the next runloop
+    /// tick (the field must be in the tree for focus to attach and raise the
+    /// keyboard). The keyboard's own animation then lifts the bar — see `handleKeyboard`.
+    private func openSearch() {
+        withAnimation(.museBar) { showSearch = true }
+        DispatchQueue.main.async { searchFieldFocused = true }
+    }
+
     /// Drives the bar's rise + stretch off the keyboard's own show/hide — its
     /// duration (so they're in lockstep) but our view-switch easing curve.
     private func handleKeyboard(_ note: Notification, showing: Bool) {
@@ -355,20 +344,16 @@ struct HomeView: View {
         let height: CGFloat = showing
             ? (info?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? keyboardHeight
             : 0
-        // Rise on a soft spring so the bar glides up alongside the keyboard and
-        // eases into its spot without a hard stop. Dismiss runs a gentle ease-out.
-        let animation: Animation = showing
-            ? .spring(response: 0.36, dampingFraction: 0.86)
-            : .easeOut(duration: 0.25)
-        withAnimation(animation) {
+        // Rise + dismiss ride the shared bar spring so the search morph feels like
+        // the same physical object as the rest of the bar.
+        withAnimation(.museBar) {
             keyboardHeight = height
             showSearch = showing
-            if showing { showViewPopover = false }
         }
     }
 
     private func clearAllFilters() {
-        withAnimation(.easeInOut(duration: 0.25)) {
+        withAnimation(.museBar) {
             activeFacets.removeAll()
             searchText = ""
         }
@@ -408,18 +393,6 @@ struct HomeView: View {
         }
     }
 
-    private var addButton: some View {
-        Button { showImagePicker = true } label: {
-            Image(systemName: "plus")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(MuseTheme.Semantic.iconDefault)
-                .frame(width: 56, height: 56)
-                .background(MuseTheme.Semantic.surfaceCard, in: Circle())
-                .overlay(Circle().stroke(MuseTheme.Semantic.dividerDefault, lineWidth: 1))
-                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        }
-    }
-
     /// The resting search + filter capsule. Shows a placeholder when idle, or the
     /// active filter pills + a clear-all ✕ when filtering. Tapping it (anywhere but
     /// a pill or the ✕) lifts into the keyboard-docked typing bar.
@@ -430,7 +403,7 @@ struct HomeView: View {
     /// A removable filter pill — lives *inside* the search bar so it rides the
     /// bar's morph as part of the same element.
     private func facetChip(_ token: String) -> some View {
-        Button { withAnimation(.easeInOut(duration: 0.2)) { _ = activeFacets.remove(token) } } label: {
+        Button { withAnimation(.museBar) { _ = activeFacets.remove(token) } } label: {
             HStack(spacing: 4) {
                 Text(Taxonomy.value(of: token)).font(.system(size: 13, weight: .medium))
                 Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).opacity(0.55)
@@ -451,6 +424,7 @@ struct HomeView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(MuseTheme.Semantic.iconDefault)
+                .matchedGeometryEffect(id: "searchIcon", in: navMorph)
 
             // One stable token field: pills (a ForEach) then a persistent field.
             // Keeping the field in the same structural slot means adding a chip
@@ -498,9 +472,15 @@ struct HomeView: View {
         .padding(.horizontal, 14)
         .frame(height: 56)
         .frame(maxWidth: .infinity)
-        .background(MuseTheme.Semantic.surfaceCard, in: Capsule())
-        .overlay(Capsule().stroke(MuseTheme.Semantic.dividerDefault, lineWidth: 1))
-        .shadow(color: .black.opacity(0.10), radius: 12, y: 4)
+        .background(
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .overlay(Capsule().fill(MuseTheme.Semantic.navBarSurface.opacity(0.8)))
+                .overlay(Capsule().stroke(MuseTheme.Semantic.navBarStroke, lineWidth: 0.5))
+                .matchedGeometryEffect(id: "barBG", in: navMorph)
+                .shadow(color: Color(red: 0.5, green: 0.5, blue: 0.5).opacity(0.2), radius: 1, x: 2, y: 2)
+                .shadow(color: Color(red: 0.5, green: 0.5, blue: 0.5).opacity(0.15), radius: 2, x: 4, y: 4)
+        )
         .contentShape(Capsule())
         .onTapGesture { if !showSearch { searchFieldFocused = true } }
     }
@@ -513,63 +493,6 @@ struct HomeView: View {
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
             .submitLabel(.search)
-    }
-
-    /// Solo floating View button → opens the mode popover. Shows the current mode.
-    private var viewButton: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.2)) { showViewPopover.toggle() }
-        } label: {
-            Image(systemName: layoutMode.iconName)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(showViewPopover ? MuseTheme.Semantic.surfacePage : MuseTheme.Semantic.iconDefault)
-                .frame(width: 56, height: 56)
-                .background(
-                    showViewPopover ? MuseTheme.Semantic.textHeading : MuseTheme.Semantic.surfaceCard,
-                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(MuseTheme.Semantic.dividerDefault, lineWidth: showViewPopover ? 0 : 1)
-                )
-                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
-        }
-    }
-
-    /// The little window that pops up out of the View button.
-    private var viewPopover: some View {
-        VStack(spacing: 2) {
-            ForEach(GalleryLayoutMode.allCases) { m in
-                Button {
-                    layoutMode = m
-                    withAnimation(.easeInOut(duration: 0.2)) { showViewPopover = false }
-                } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: m.iconName).font(.system(size: 15)).frame(width: 20)
-                        Text(m.label).font(.system(size: 15, weight: m == layoutMode ? .semibold : .regular))
-                        Spacer()
-                        if m == layoutMode {
-                            Image(systemName: "checkmark").font(.system(size: 12, weight: .semibold))
-                        }
-                    }
-                    .foregroundStyle(m == layoutMode ? MuseTheme.Semantic.textHeading : MuseTheme.Semantic.textSecondary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 11)
-                    .frame(maxWidth: .infinity)
-                    .background(
-                        m == layoutMode ? MuseTheme.Semantic.surfacePage : Color.clear,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    )
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(5)
-        .frame(width: 188)
-        .background(MuseTheme.Semantic.surfaceCard, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(MuseTheme.Semantic.dividerDefault, lineWidth: 1))
-        .shadow(color: .black.opacity(0.16), radius: 22, y: 8)
     }
 
     private var emptyState: some View {
