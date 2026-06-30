@@ -26,11 +26,11 @@ enum MuseTheme {
         static let neutral50 = Color(hex: "F5F2EC")
 
         // Purple accent — introduced with the consolidated nav bar.
-        static let purple700 = Color(hex: "7744FF")   // accent / selected icon
-        static let purple500 = Color(hex: "936BFF")   // FAB gradient end
-        static let purple300 = Color(hex: "B9A3F6")   // FAB border
-        static let purple200 = Color(hex: "CFBEFF")   // FAB gradient start
-        static let purple100 = Color(hex: "D4C5FF")   // mode-selection pill
+        static let purple700 = Color(hex: "7744FF")                      // accent / selected icon
+        static let purple500 = Color(red: 0.58, green: 0.42, blue: 1)    // FAB gradient end (Figma)
+        static let purple300 = Color(red: 0.73, green: 0.64, blue: 0.97) // FAB border (Figma)
+        static let purple200 = Color(red: 0.81, green: 0.74, blue: 1)    // FAB gradient start (Figma)
+        static let purple100 = Color(hex: "D4C5FF")                      // mode-selection pill
 
         // Near-white frosted surfaces for the nav bar.
         static let frost = Color(hex: "FCFCFC")

@@ -25,19 +25,19 @@ extension Animation {
 /// animate from this bar into the host's search field and back.
 struct MuseNavBar: View {
     @Binding var layoutMode: GalleryLayoutMode
+    /// Lifted to the host so it can hide the shared search icon while the picker is open.
+    @Binding var viewModeExpanded: Bool
     /// Shared with the host's search field so the bar morphs into it.
     var namespace: Namespace.ID
     var onAdd: () -> Void
     var onSearch: () -> Void
 
-    @State private var viewModeExpanded = false
     /// Set true (delayed) once the bar has settled into place, so the icons fade in
     /// *after* the background lands — used when returning from search.
     @State private var iconsVisible = false
     /// Connects the traveling current-mode glyph across rest ⇄ expanded.
     @Namespace private var morph
 
-    private let barHeight: CGFloat = 56
     private let corner: CGFloat = 28
     private let stretch = Animation.museBar
 
@@ -54,9 +54,7 @@ struct MuseNavBar: View {
         return CGFloat(index) * (glyphSize + itemSpacing) + glyphSize / 2 - pillWidth / 2
     }
 
-    /// Side icons (search, ＋, non-selected modes, ✕) scale + fade. Both entering
-    /// and leaving ride the shared spring (no override), so they move on the same
-    /// clock as the traveling glyph and pill.
+    /// Side icons (search, ＋, non-selected modes, ✕) scale + fade.
     private var pop: AnyTransition {
         .scale(scale: 0.5).combined(with: .opacity)
     }
@@ -69,7 +67,7 @@ struct MuseNavBar: View {
                 restContent
             }
         }
-        .frame(height: barHeight)
+        .padding(.vertical, 4)
         .padding(.horizontal, 16)
         .opacity(iconsVisible ? 1 : 0)   // icons only — background stays visible as it lands
         .background(barBackground)
@@ -87,9 +85,18 @@ struct MuseNavBar: View {
 
     private var restContent: some View {
         HStack(spacing: 32) {
-            iconButton("magnifyingglass", tint: MuseTheme.Semantic.iconDefault, action: onSearch)
-                .matchedGeometryEffect(id: "searchIcon", in: namespace)
-                .transition(pop)
+            // Invisible anchor for the search icon. The *visible* icon is a single
+            // persistent overlay owned by the host (so it never fades when the bar
+            // morphs — it just glides to whichever form's anchor, like the pill).
+            Button(action: onSearch) {
+                Color.clear
+                    .frame(width: 24, height: 24)
+                    .matchedGeometryEffect(id: "searchSlot", in: namespace, isSource: true)
+                    .padding(10)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .transition(pop)
 
             fab
                 .transition(pop)
@@ -111,15 +118,26 @@ struct MuseNavBar: View {
 
     private var fab: some View {
         Button(action: onAdd) {
-            Image(systemName: "plus")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 32, height: 32)
-                .background(MuseTheme.Semantic.fabGradient, in: Circle())
-                .overlay(Circle().stroke(MuseTheme.Semantic.fabStroke, lineWidth: 1))
+            plusGlyph
                 .frame(width: 44, height: 44)
+                .background(MuseTheme.Semantic.fabGradient, in: Circle())
+                // 1pt stroke sitting 0.5pt outside the edge (Figma `inset(by: -0.5)`).
+                .overlay(Circle().inset(by: -0.5).stroke(MuseTheme.Semantic.fabStroke, lineWidth: 1))
         }
         .buttonStyle(PressableStyle())
+    }
+
+    /// The Figma plus: a chunky, fully-rounded "+" (two 2.52pt-thick rounded bars in
+    /// a 16pt box) with a faint light-lavender inner highlight along the top edge.
+    private var plusGlyph: some View {
+        ZStack {
+            Capsule().frame(width: 16, height: 2.52)
+            Capsule().frame(width: 2.52, height: 16)
+        }
+        .frame(width: 16, height: 16)
+        .foregroundStyle(
+            .white.shadow(.inner(color: Color(red: 0.873, green: 0.825, blue: 1), radius: 0.1, y: 0.25))
+        )
     }
 
     // MARK: Expanded state — Vast · Bento · Feed · ✕
@@ -158,6 +176,14 @@ struct MuseNavBar: View {
                 .frame(width: pillWidth, height: 40)
                 .offset(x: pillX)
                 .animation(.museBar, value: layoutMode)
+        }
+        // Keep the (hidden) search-icon anchor alive at the leading edge while the
+        // picker is open, so the host's persistent icon stays anchored here instead of
+        // jumping to a corner — it just fades back in place on close.
+        .overlay(alignment: .leading) {
+            Color.clear
+                .frame(width: 24, height: 24)
+                .matchedGeometryEffect(id: "searchSlot", in: namespace, isSource: true)
         }
     }
 

@@ -9,6 +9,9 @@ struct HomeView: View {
     @Query(sort: \LocalMuseImage.createdAt, order: .reverse) private var images: [LocalMuseImage]
 
     @State private var layoutMode: GalleryLayoutMode = .vast
+    /// Whether the nav bar's view-mode picker is open (owned here so the shared
+    /// search icon can be hidden while it is).
+    @State private var viewModeExpanded = false
     @State private var displayedTileID: Int?
     @State private var isExpanded = false
     @State private var sourceFrame: CGRect = .zero
@@ -284,18 +287,51 @@ struct HomeView: View {
             // lifts (manual offset) so the rise and stretch ride a single clock.
             if displayedTileID == nil {
                 VStack(spacing: 10) {
-                    if showSearch {
-                        SearchFilterView(searchText: $searchText, activeFacets: $activeFacets)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    // The search bar stays as long as it's being typed in OR holds
+                    // active filters — so dismissing the keyboard while populated drops
+                    // it to rest (keyboard down → offset 0) instead of collapsing. It
+                    // only returns to the compact nav bar once it's empty.
+                    if showSearch || hasActiveFilters {
+                        // Suggestions only while actively typing.
+                        if showSearch {
+                            SearchFilterView(searchText: $searchText, activeFacets: $activeFacets)
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
                         searchBar
+                            // Fade the search bar's content out fast on collapse so the
+                            // trailing ✕/chips vanish while the bar is still wide.
+                            .transition(.asymmetric(
+                                insertion: .opacity,
+                                removal: .opacity.animation(.easeOut(duration: 0.14))
+                            ))
                     } else {
                         MuseNavBar(
                             layoutMode: $layoutMode,
+                            viewModeExpanded: $viewModeExpanded,
                             namespace: navMorph,
                             onAdd: { showImagePicker = true },
                             onSearch: { openSearch() }
                         )
+                        // Appear with NO fade so the frosted fill stays solid the whole
+                        // time it shrinks into place (its icons fade in after, via the
+                        // bar's iconsVisible delay). Fade out normally when opening search.
+                        .transition(.asymmetric(insertion: .identity, removal: .opacity))
                     }
+                }
+                .overlay(alignment: .topLeading) {
+                    // THE search icon — ONE persistent view that follows the active
+                    // form's anchor, so it's on screen the whole time and only glides
+                    // position (never fades/inserts). It's never removed — only its
+                    // opacity changes — so closing the view-mode picker just fades it
+                    // back IN PLACE (no scaling in from a corner). Taps pass through.
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(MuseTheme.Semantic.accentSelected)
+                        .frame(width: 24, height: 24)
+                        .matchedGeometryEffect(id: "searchSlot", in: navMorph, isSource: false)
+                        .allowsHitTesting(false)
+                        .opacity(viewModeExpanded ? 0 : 1)
+                        .animation(.easeInOut(duration: 0.2), value: viewModeExpanded)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 12)
@@ -420,69 +456,72 @@ struct HomeView: View {
     /// Active-filter pills live inside it (a token field) so they travel with the
     /// bar through the transition; the field placeholder stays "Search inspiration".
     private var searchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(MuseTheme.Semantic.iconDefault)
-                .matchedGeometryEffect(id: "searchIcon", in: navMorph)
-
-            // One stable token field: pills (a ForEach) then a persistent field.
-            // Keeping the field in the same structural slot means adding a chip
-            // doesn't rebuild it, so focus (and the keyboard) is never lost.
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(sortedActiveFacets, id: \.self) { token in
-                        facetChip(token)
-                    }
-                    searchField(placeholder: activeFacets.isEmpty ? "Search inspiration" : "")
-                        .frame(minWidth: 160)
-                }
-            }
-            // Hug content height so it stays vertically centered (otherwise the
-            // scroll view fills the bar and the trailing button looks like it floats low).
-            .fixedSize(horizontal: false, vertical: true)
-
-            // Stable trailing slot — always present so it rides the bar's offset
-            // (never pops to the bottom). Chevron when active, clear-✕ when resting
-            // with filters, cross-faded in place.
-            ZStack {
-                Button { searchFieldFocused = false } label: {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(MuseTheme.Semantic.iconDefault)
-                        .frame(width: 28, height: 28)
-                }
-                .opacity(showSearch ? 1 : 0)
-                .allowsHitTesting(showSearch)
-
-                Button { clearAllFilters() } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(MuseTheme.Semantic.textSecondary)
+        // The morphing capsule is the CONTAINER; the content lives in its overlay and
+        // is clipped to it. So when the bar collapses (the matched background shrinks to
+        // the compact pill), the trailing ✕ and chips move inward and clip with it —
+        // they stay part of the bar instead of floating outside as it shrinks.
+        Capsule()
+            .fill(.ultraThinMaterial)
+            .overlay(Capsule().fill(MuseTheme.Semantic.navBarSurface.opacity(0.8)))
+            .overlay(Capsule().stroke(MuseTheme.Semantic.navBarStroke, lineWidth: 0.5))
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .matchedGeometryEffect(id: "barBG", in: navMorph)
+            .overlay {
+                HStack(spacing: 8) {
+                    // Invisible anchor — the visible search icon is a persistent overlay
+                    // (see the bottom bar's `.overlay`) so it never fades when forms swap.
+                    Color.clear
                         .frame(width: 24, height: 24)
-                        .background(MuseTheme.Semantic.surfacePage, in: Circle())
+                        .matchedGeometryEffect(id: "searchSlot", in: navMorph, isSource: true)
+
+                    // One stable token field: pills (a ForEach) then a persistent field.
+                    // Keeping the field in the same structural slot means adding a chip
+                    // doesn't rebuild it, so focus (and the keyboard) is never lost.
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(sortedActiveFacets, id: \.self) { token in
+                                facetChip(token)
+                            }
+                            searchField(placeholder: activeFacets.isEmpty ? "Search inspiration" : "")
+                                .frame(minWidth: 160)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    // Stable trailing slot — chevron when active, clear-✕ when resting
+                    // with filters, cross-faded in place.
+                    ZStack {
+                        Button { searchFieldFocused = false } label: {
+                            Image(systemName: "chevron.down")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(MuseTheme.Semantic.iconDefault)
+                                .frame(width: 28, height: 28)
+                        }
+                        .opacity(showSearch ? 1 : 0)
+                        .allowsHitTesting(showSearch)
+
+                        Button { clearAllFilters() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(MuseTheme.Semantic.textSecondary)
+                                .frame(width: 24, height: 24)
+                                .background(MuseTheme.Semantic.surfacePage, in: Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .opacity((!showSearch && hasActiveFilters) ? 1 : 0)
+                        .allowsHitTesting(!showSearch && hasActiveFilters)
+                    }
+                    .frame(width: 28, height: 28)
+                    .opacity(showSearch || hasActiveFilters ? 1 : 0)
                 }
-                .buttonStyle(.plain)
-                .opacity((!showSearch && hasActiveFilters) ? 1 : 0)
-                .allowsHitTesting(!showSearch && hasActiveFilters)
+                .padding(.horizontal, 16)
             }
-            .frame(width: 28, height: 28)
-            .opacity(showSearch || hasActiveFilters ? 1 : 0)
-        }
-        .padding(.horizontal, 14)
-        .frame(height: 56)
-        .frame(maxWidth: .infinity)
-        .background(
-            Capsule()
-                .fill(.ultraThinMaterial)
-                .overlay(Capsule().fill(MuseTheme.Semantic.navBarSurface.opacity(0.8)))
-                .overlay(Capsule().stroke(MuseTheme.Semantic.navBarStroke, lineWidth: 0.5))
-                .matchedGeometryEffect(id: "barBG", in: navMorph)
-                .shadow(color: Color(red: 0.5, green: 0.5, blue: 0.5).opacity(0.2), radius: 1, x: 2, y: 2)
-                .shadow(color: Color(red: 0.5, green: 0.5, blue: 0.5).opacity(0.15), radius: 2, x: 4, y: 4)
-        )
-        .contentShape(Capsule())
-        .onTapGesture { if !showSearch { searchFieldFocused = true } }
+            .clipShape(Capsule())
+            .shadow(color: Color(red: 0.5, green: 0.5, blue: 0.5).opacity(0.2), radius: 1, x: 2, y: 2)
+            .shadow(color: Color(red: 0.5, green: 0.5, blue: 0.5).opacity(0.15), radius: 2, x: 4, y: 4)
+            .contentShape(Capsule())
+            .onTapGesture { if !showSearch { searchFieldFocused = true } }
     }
 
     private func searchField(placeholder: String) -> some View {
