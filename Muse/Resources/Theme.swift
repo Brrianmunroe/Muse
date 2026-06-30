@@ -24,6 +24,17 @@ enum MuseTheme {
         static let neutral200 = Color(hex: "DDD9CF")
         static let neutral100 = Color(hex: "F1EFE8")
         static let neutral50 = Color(hex: "F5F2EC")
+
+        // Purple accent — introduced with the consolidated nav bar.
+        static let purple700 = Color(hex: "7744FF")                      // accent / selected icon
+        static let purple500 = Color(red: 0.58, green: 0.42, blue: 1)    // FAB gradient end (Figma)
+        static let purple300 = Color(red: 0.73, green: 0.64, blue: 0.97) // FAB border (Figma)
+        static let purple200 = Color(red: 0.81, green: 0.74, blue: 1)    // FAB gradient start (Figma)
+        static let purple100 = Color(hex: "D4C5FF")                      // mode-selection pill
+
+        // Near-white frosted surfaces for the nav bar.
+        static let frost = Color(hex: "FCFCFC")
+        static let frostStroke = Color(hex: "E4E4E4")
     }
 
     // MARK: - Tier 2: Aliases (purpose-based names → reference Primitives)
@@ -68,6 +79,18 @@ enum MuseTheme {
 
         static let iconDefault = Alias.textMuted
         static let dividerDefault = Alias.strokeDefault
+
+        // Consolidated nav bar.
+        static let navBarSurface = Primitive.frost            // frosted fill tint (used ~0.8 opacity over a material)
+        static let navBarStroke = Primitive.frostStroke
+        static let accentSelected = Primitive.purple700        // selected mode / view icon
+        static let accentSelectionFill = Primitive.purple100   // sliding pill behind the selected mode
+        static let fabStroke = Primitive.purple300
+        static let fabGradient = LinearGradient(
+            colors: [Primitive.purple200, Primitive.purple500],
+            startPoint: .top,
+            endPoint: .bottom
+        )
 
         static let tagTypographyBg = Alias.fillTintBlue
         static let tagTypographyFg = Alias.textOnTintBlue

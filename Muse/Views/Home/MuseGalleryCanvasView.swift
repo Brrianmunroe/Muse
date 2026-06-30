@@ -96,15 +96,22 @@ struct MuseGalleryCanvasView: View {
         }
         .clipped()
         .onChange(of: mode) { oldMode, newMode in
-            // While filtering, re-pack the matching cluster for the new mode using
-            // the exact dialed spec for that mode transition (so it feels identical
-            // to a normal view switch). Otherwise run the full-board mode morph,
-            // which now resets the zoom internally as part of the morph.
-            if isFiltering {
-                if newMode != .vast { zoomScale = 1 }
-                applyFilter(animated: true, spec: tuning.spec(from: oldMode, to: newMode))
-            } else {
-                transition(from: oldMode, to: newMode)
+            // Defer the (heavy) canvas morph by one runloop tick so the nav bar's
+            // mode spring commits and starts first. Otherwise the largest morph
+            // (→ Feed: every tile flies to its own full-screen page) hogs the main
+            // thread the instant the selection pill should spring, and the pill
+            // appears to snap. One tick is imperceptible for the gallery.
+            DispatchQueue.main.async {
+                // While filtering, re-pack the matching cluster for the new mode using
+                // the exact dialed spec for that mode transition (so it feels identical
+                // to a normal view switch). Otherwise run the full-board mode morph,
+                // which now resets the zoom internally as part of the morph.
+                if isFiltering {
+                    if newMode != .vast { zoomScale = 1 }
+                    applyFilter(animated: true, spec: tuning.spec(from: oldMode, to: newMode))
+                } else {
+                    transition(from: oldMode, to: newMode)
+                }
             }
         }
     }

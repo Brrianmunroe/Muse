@@ -19,6 +19,16 @@ enum GalleryLayoutMode: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Outline (unfilled) variant — used in the consolidated nav bar to match the
+    /// lighter Figma treatment.
+    var outlineIconName: String {
+        switch self {
+        case .vast: return "square.grid.3x3"
+        case .bento: return "square.grid.2x2"
+        case .feed: return "rectangle.portrait"
+        }
+    }
+
     var label: String {
         switch self {
         case .vast: return "Vast"
