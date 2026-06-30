@@ -1,5 +1,34 @@
 import SwiftUI
 
+/// The "Vast" glyph — a bento-style cluster of six rounded rectangles, traced
+/// from the Figma SVG (24×24 viewBox). Strokes sit inside the bounds so the
+/// outline reads crisp at small sizes.
+struct VastGridShape: Shape {
+    /// (x, y, width, height) in the 24×24 design space.
+    private static let rects: [(CGFloat, CGFloat, CGFloat, CGFloat)] = [
+        (3, 3, 8, 12),
+        (17, 3, 4, 5),
+        (12, 3, 4, 5),
+        (12, 9, 9, 6),
+        (3, 16, 5, 5),
+        (9, 16, 12, 5)
+    ]
+    /// Visible stroke width in the design space (3pt stroke, masked to the inside → 1.5pt shows).
+    static let strokeWidth: CGFloat = 1.5
+
+    func path(in rect: CGRect) -> Path {
+        let scale = min(rect.width, rect.height) / 24
+        let inset = Self.strokeWidth / 2
+        var path = Path()
+        for (x, y, w, h) in Self.rects {
+            let r = CGRect(x: x * scale, y: y * scale, width: w * scale, height: h * scale)
+                .insetBy(dx: inset * scale, dy: inset * scale)
+            path.addRoundedRect(in: r, cornerSize: CGSize(width: scale, height: scale))
+        }
+        return path
+    }
+}
+
 extension Animation {
     /// The one spring every nav-bar movement shares — expand/collapse, the
     /// traveling glyph, the selection pill, and the search-bar morph all ride this,
@@ -190,13 +219,21 @@ struct MuseNavBar: View {
     /// A layout-mode icon. Just the glyph — the selection pill is a separate single
     /// sliding view in `modePicker`, so it can be governed by one spring.
     private func modeGlyph(_ mode: GalleryLayoutMode) -> some View {
-        Image(systemName: mode.outlineIconName)
-            .font(.system(size: 18, weight: .medium))
-            .foregroundStyle(mode == layoutMode
-                ? MuseTheme.Semantic.accentSelected
-                : MuseTheme.Semantic.textHeading)
-            .frame(width: 24, height: 24)
-            .padding(10)
+        let tint = mode == layoutMode
+            ? MuseTheme.Semantic.accentSelected
+            : MuseTheme.Semantic.textHeading
+        return Group {
+            if mode == .vast {
+                VastGridShape()
+                    .stroke(tint, lineWidth: VastGridShape.strokeWidth)
+            } else {
+                Image(systemName: mode.outlineIconName)
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(tint)
+            }
+        }
+        .frame(width: 24, height: 24)
+        .padding(10)
     }
 
     // MARK: Building blocks

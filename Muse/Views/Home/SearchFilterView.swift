@@ -54,14 +54,36 @@ struct SearchFilterView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(12)
+            .padding(.horizontal, 16)
         }
         .frame(maxWidth: .infinity)
-        .background(MuseTheme.Semantic.surfaceCard, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(MuseTheme.Semantic.dividerDefault, lineWidth: 1)
-        )
+        .frame(height: 52)
+        .background {
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .overlay(Capsule().fill(MuseTheme.Semantic.navBarSurface.opacity(0.8)))
+                .overlay(Capsule().stroke(MuseTheme.Semantic.navBarStroke, lineWidth: 0.5))
+        }
+        .clipShape(Capsule())
+        .overlay {
+            HStack(spacing: 0) {
+                LinearGradient(
+                    colors: [MuseTheme.Semantic.navBarSurface, MuseTheme.Semantic.navBarSurface.opacity(0)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: 24)
+                Spacer()
+                LinearGradient(
+                    colors: [MuseTheme.Semantic.navBarSurface.opacity(0), MuseTheme.Semantic.navBarSurface],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+                .frame(width: 24)
+            }
+            .clipShape(Capsule())
+            .allowsHitTesting(false)
+        }
         .shadow(color: .black.opacity(0.08), radius: 14, y: 5)
     }
 

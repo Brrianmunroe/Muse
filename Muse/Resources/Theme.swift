@@ -66,7 +66,7 @@ enum MuseTheme {
     // MARK: - Tier 3: Semantic (element-specific names → reference Aliases)
 
     enum Semantic {
-        static let surfacePage = Alias.fillCanvas
+        static let surfacePage = Color(hex: "F9F9F9")
         static let surfaceCard = Alias.fillSurface
         static let surfaceNavBar = Alias.fillCanvas
 

@@ -121,7 +121,7 @@ enum GalleryLayoutEngine {
 
     private static func feedLayout(tiles: [any GalleryTile], viewport: CGSize) -> GalleryLayout {
         let pageHeight = viewport.height
-        let horizontalInset: CGFloat = 24
+        let horizontalInset: CGFloat = 16
         let verticalInset: CGFloat = 56
 
         var placements: [Int: TilePlacement] = [:]

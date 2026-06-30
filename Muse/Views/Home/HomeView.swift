@@ -108,29 +108,7 @@ struct HomeView: View {
             .animation(ImageDetailView.transition, value: isExpanded)
             .background(MuseTheme.Semantic.surfacePage.ignoresSafeArea())
             .toolbar(.hidden, for: .navigationBar)
-            // Let the gallery draw up under the status bar so photos can pass beneath
-            // it. Applied once here (not on the canvas) so it can't feed the canvas's
-            // own size measurement into a layout loop.
-            .ignoresSafeArea(.container, edges: .top)
-        }
-        .overlay(alignment: .top) {
-            // Opaque page color at the very top edge fading to transparent, so photos
-            // appear to slide underneath the status bar / battery. Lives at the screen
-            // root (never on the canvas) and ignores touches, so it can't affect canvas
-            // sizing or gestures.
-            if displayedTileID == nil {
-                GeometryReader { proxy in
-                    LinearGradient(
-                        colors: [MuseTheme.Semantic.surfacePage, MuseTheme.Semantic.surfacePage.opacity(0)],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: proxy.safeAreaInsets.top + 16)
-                    .frame(maxWidth: .infinity, alignment: .top)
-                }
-                .ignoresSafeArea(.container, edges: .top)
-                .allowsHitTesting(false)
-            }
+            .ignoresSafeArea(.container, edges: [.top, .bottom])
         }
         .overlay {
             Color.black
@@ -285,8 +263,7 @@ struct HomeView: View {
             // search morphs it (shared namespace) into the keyboard-docked search
             // field + suggestions card. One bottom-anchored stack the keyboard
             // lifts (manual offset) so the rise and stretch ride a single clock.
-            if displayedTileID == nil {
-                VStack(spacing: 10) {
+            VStack(spacing: 10) {
                     // The search bar stays as long as it's being typed in OR holds
                     // active filters — so dismissing the keyboard while populated drops
                     // it to rest (keyboard down → offset 0) instead of collapsing. It
@@ -334,9 +311,9 @@ struct HomeView: View {
                         .animation(.easeInOut(duration: 0.2), value: viewModeExpanded)
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 12)
+                .padding(.bottom, 40)
                 .offset(y: -keyboardOverlap)
-            }
+                .allowsHitTesting(displayedTileID == nil)
         }
         // Opt the whole gallery out of keyboard avoidance so the bar never moves
         // and the search bar rises only by its single manual offset (no double rise).
@@ -506,7 +483,6 @@ struct HomeView: View {
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(MuseTheme.Semantic.textSecondary)
                                 .frame(width: 24, height: 24)
-                                .background(MuseTheme.Semantic.surfacePage, in: Circle())
                         }
                         .buttonStyle(.plain)
                         .opacity((!showSearch && hasActiveFilters) ? 1 : 0)

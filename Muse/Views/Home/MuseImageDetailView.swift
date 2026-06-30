@@ -752,9 +752,6 @@ struct MuseImageDetailView: View {
     /// the incoming side and fades clear — shared by drag-flings and chevrons.
     private func commitSlide(to target: LocalMuseImage, direction: Int, width: CGFloat, velocity: CGFloat = 0) {
         isSliding = true
-        // Only fast flings streak; gentle swipes stay crisp.
-        let blurPeak = min(Self.pageBlurPeak, abs(velocity) / 600 * Self.pageBlurPeak)
-        if blurPeak > 0.05 { runMotionBlurParabola(peak: blurPeak) }
 
         springSlide(to: CGFloat(-direction) * width, velocity: velocity) {
             displayedTileID = target.intID
