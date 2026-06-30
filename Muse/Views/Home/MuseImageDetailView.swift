@@ -36,8 +36,8 @@ struct MuseImageDetailView: View {
     @GestureState private var magnifyBy: CGFloat = 1
     @State private var noteSaveTask: Task<Void, Never>?
     @State private var loadedImages: [Int: UIImage] = [:]
-    @State private var confirmDelete = false
     @FocusState private var notesFocused: Bool
+    @State private var keyboardHeight: CGFloat = 0
     // Tap toggles an immersive black backdrop (photo front-and-center, chrome gone).
     @State private var immersed = false
     // 0 = info card hidden (photo is the star), 1 = card fully revealed. A small
@@ -168,16 +168,6 @@ struct MuseImageDetailView: View {
                             // Static during swipes — only moves on open/dismiss.
                             .offset(y: (isExpanded ? 0 : -52) - dismissProgress * 36)
 
-                        // Card is hidden until revealed by a small drag up; it then
-                        // rides up 32pt below the photo's (retreating) bottom. Placed
-                        // from the top purely by offset so its distance-from-top can't
-                        // grow the stack and re-center everything mid-swipe.
-                        glassCard(image: cardImage ?? image)
-                            .padding(.horizontal, 16)
-                            .opacity(chromeOpacity * Double(revealProgress))
-                            .offset(y: cardTop(in: geo.size, safe: safe, current: image)
-                                + (isExpanded ? 0 : 52) + dismissProgress * 36)
-                            .allowsHitTesting(revealProgress > 0.6)
                     }
                     .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                     // Dismiss shrink/offset only ever applies to a vertical pull —
@@ -191,11 +181,11 @@ struct MuseImageDetailView: View {
             }
             .ignoresSafeArea()
             .preferredColorScheme(.dark)
-            .confirmationDialog("Delete this image?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) { performDelete(image) }
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text("This removes it from your gallery for good.")
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+                handleKeyboard(note)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { note in
+                handleKeyboard(note, hiding: true)
             }
         }
     }
@@ -207,6 +197,9 @@ struct MuseImageDetailView: View {
     private func heroPager(current: LocalMuseImage, dest: CGRect, geo: GeometryProxy) -> some View {
         ZStack {
             heroImage(image: current, dest: dest, width: geo.size.width)
+                .offset(x: slideOffset)
+            morphingGlassCard(image: current, dest: dest)
+                .position(x: dest.midX, y: morphingCardCenterY(for: dest))
                 .offset(x: slideOffset)
 
             if let incoming = incomingImage {
@@ -221,6 +214,9 @@ struct MuseImageDetailView: View {
                 heroCard(image: incoming, frame: incomingDest, radius: Self.heroRadius)
                     .shadow(color: .black.opacity(0.4), radius: 22, y: 12)
                     .position(x: incomingDest.midX, y: incomingDest.midY)
+                    .offset(x: slideOffset + side * geo.size.width)
+                morphingGlassCard(image: incoming, dest: incomingDest, interactive: false)
+                    .position(x: incomingDest.midX, y: morphingCardCenterY(for: incomingDest))
                     .offset(x: slideOffset + side * geo.size.width)
             }
         }
@@ -286,20 +282,10 @@ struct MuseImageDetailView: View {
     /// off-screen. Matched to the compact card's real height — must stay ≥ it or the
     /// card's bottom ("Saved …") clips. Re-tune if the card's height changes.
     private static let cardReserve: CGFloat = 230
+    private static let focusedCardReserve: CGFloat = 330
 
-    /// Y for the top of the info card: 32pt below the photo's bottom. During a
-    /// swipe it interpolates between the current and incoming photo's positions by
-    /// slide progress, so a height change between photos glides instead of snapping.
-    private func cardTop(in size: CGSize, safe: UIEdgeInsets, current: LocalMuseImage) -> CGFloat {
-        let currentBottom = heroDestination(
-            in: size, safeTop: safe.top, safeBottom: safe.bottom, aspect: current.aspectRatio
-        ).maxY
-        guard let incoming = incomingImage else { return currentBottom + Self.cardGap }
-        let incomingBottom = heroDestination(
-            in: size, safeTop: safe.top, safeBottom: safe.bottom, aspect: incoming.aspectRatio
-        ).maxY
-        let p = min(abs(slideOffset) / max(size.width, 1), 1)
-        return currentBottom * (1 - p) + incomingBottom * p + Self.cardGap
+    private var activeCardReserve: CGFloat {
+        notesFocused ? Self.focusedCardReserve : Self.cardReserve
     }
 
     private func heroDestination(in size: CGSize, safeTop: CGFloat, safeBottom: CGFloat, aspect: CGFloat) -> CGRect {
@@ -309,8 +295,9 @@ struct MuseImageDetailView: View {
         // up to make room — and grows back to fill the band when the card is hidden.
         let hInset: CGFloat = immersed ? 0 : 10
         let top: CGFloat = immersed ? 0 : safeTop + 58
-        let bottomFull: CGFloat = immersed ? size.height : size.height - safeBottom
-        let bottom = bottomFull - reveal * (Self.cardReserve + Self.cardGap)
+        let keyboardLift = notesFocused ? max(0, keyboardHeight - safeBottom) + 12 : 0
+        let bottomFull: CGFloat = immersed ? size.height : size.height - safeBottom - keyboardLift
+        let bottom = bottomFull - reveal * (activeCardReserve + Self.cardGap)
         let availableWidth = size.width - hInset * 2
         let availableHeight = max(160, bottom - top)
 
@@ -370,21 +357,22 @@ struct MuseImageDetailView: View {
             // Back button — returns to the gallery, same as the swipe-down.
             glassIconButton(systemName: "chevron.left") { dismiss() }
             Spacer()
-            // Favorite toggle, persisted on the image.
-            glassIconButton(systemName: image.isFavorite ? "heart.fill" : "heart") {
-                toggleFavorite(image)
+            // Notes toggle — reveals the hidden card and places the cursor in notes.
+            glassIconButton(systemName: "note.text") {
+                toggleNotesCard()
             }
             // Overflow: share the file or delete the image.
             Menu {
                 ShareLink(item: LocalImageStore.url(for: image.localPath)) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
-                Button(role: .destructive) { confirmDelete = true } label: {
+                Button(role: .destructive) { performDelete(image, width: width) } label: {
                     Label("Delete", systemImage: "trash")
                 }
             } label: {
                 glassIconCircle(systemName: "ellipsis")
             }
+            .buttonStyle(PressableStyle())
         }
         .padding(.horizontal, 20)
         // Sit clearly below the status bar / dynamic island, on every device.
@@ -405,12 +393,85 @@ struct MuseImageDetailView: View {
         Button(action: action) {
             glassIconCircle(systemName: systemName)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(PressableStyle())
+    }
+
+    private var morphingCardHeight: CGFloat {
+        let p = min(max(revealProgress, 0), 1)
+        return 5 + (activeCardReserve - 5) * p
+    }
+
+    private func morphingCardTop(for dest: CGRect) -> CGFloat {
+        let p = min(max(revealProgress, 0), 1)
+        return dest.maxY + 12 + (Self.cardGap - 12) * p
+    }
+
+    private func morphingCardCenterY(for dest: CGRect) -> CGFloat {
+        morphingCardTop(for: dest) + max(33, morphingCardHeight) / 2
+    }
+
+    private func morphingGlassCard(
+        image: LocalMuseImage,
+        dest: CGRect,
+        interactive: Bool = true
+    ) -> some View {
+        let p = min(max(revealProgress, 0), 1)
+        let handleWidth: CGFloat = 46
+        let expandedWidth = max(handleWidth, dest.width - 4)
+        let shellWidth = handleWidth + (expandedWidth - handleWidth) * p
+        let shellHeight = morphingCardHeight
+        let frameHeight = max(33, shellHeight)
+        let corner = min(shellHeight / 2, 2.5 + (18 - 2.5) * p)
+        let contentOpacity = Double(min(max((p - 0.18) / 0.72, 0), 1))
+        let frostOpacity = Double(min(max(p / 0.24, 0), 1))
+        let handleOpacity = Double(max(0, 1 - p * 1.25))
+
+        return ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .background(
+                    RoundedRectangle(cornerRadius: corner, style: .continuous)
+                        .fill(Color.white.opacity(0.16 * frostOpacity))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: corner, style: .continuous)
+                        .stroke(Color.white.opacity(0.28 * frostOpacity), lineWidth: 1)
+                )
+                .opacity(frostOpacity)
+                .frame(width: shellWidth, height: shellHeight)
+
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .fill(Self.glassForeground.opacity(0.68 * handleOpacity))
+                .frame(width: shellWidth, height: shellHeight)
+
+            glassCardContent(image: image)
+                .padding(18)
+                .frame(width: expandedWidth, alignment: .leading)
+                .opacity(contentOpacity)
+                .blur(radius: chromeFrost * Self.cardFrostBlur)
+                .opacity(1 - Double(chromeFrost) * 0.95)
+                .allowsHitTesting(interactive && revealProgress > 0.6)
+
+            Color.clear
+                .frame(width: shellWidth, height: max(44, frameHeight))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard interactive else { return }
+                    revealNotesCard(focus: false)
+                }
+                .gesture(handleRevealGesture)
+                .allowsHitTesting(interactive && !immersed && revealProgress < 0.7)
+        }
+        .frame(width: shellWidth, height: frameHeight, alignment: .top)
+        .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .contentShape(Rectangle())
+        .opacity(immersed ? 0 : chromeOpacity)
+        .allowsHitTesting(interactive && !immersed)
     }
 
     // MARK: - Glass card
 
-    private func glassCard(image: LocalMuseImage) -> some View {
+    private func glassCardContent(image: LocalMuseImage) -> some View {
         // Deliberate per-section rhythm: a single uniform gap read as uneven across
         // blocks of different density, so each section sets its own top gap instead.
         VStack(alignment: .leading, spacing: 0) {
@@ -494,21 +555,7 @@ struct MuseImageDetailView: View {
                 // Smaller, distinct gap for the footnote.
                 .padding(.top, 14)
         }
-        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        // Content frosts and fades to near-zero at the swipe midpoint, swaps,
-        // then sharpens back in — the glass container behind it stays put.
-        .blur(radius: chromeFrost * Self.cardFrostBlur)
-        .opacity(1 - Double(chromeFrost) * 0.95)
-        .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .background(Color.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.28), lineWidth: 1)
-        )
     }
 
     private func notesBinding(for image: LocalMuseImage) -> Binding<String> {
@@ -528,20 +575,117 @@ struct MuseImageDetailView: View {
 
     // MARK: - Top bar actions
 
-    private func toggleFavorite(_ image: LocalMuseImage) {
-        image.isFavorite.toggle()
-        try? modelContext.save()
+    private func toggleNotesCard() {
+        if revealProgress < 0.9 || !notesFocused {
+            revealNotesCard(focus: true)
+        } else {
+            notesFocused = false
+            settleReveal(to: 0)
+        }
     }
 
-    /// Removes the image's files and record, then closes back to the gallery.
-    private func performDelete(_ image: LocalMuseImage) {
+    private func revealNotesCard(focus: Bool) {
+        guard !immersed else { return }
+        settleReveal(to: 1)
+        if focus {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                notesFocused = true
+            }
+        }
+    }
+
+    /// Removes the image's files and record, then glides to the next neighbor.
+    private func performDelete(_ image: LocalMuseImage, width: CGFloat) {
+        guard !isSliding else { return }
+        notesFocused = false
+
+        guard let index = images.firstIndex(where: { $0.id == image.id }) else {
+            deleteRecordAndFiles(image)
+            dismiss()
+            return
+        }
+
+        let nextIndex = images.indices.contains(index + 1) ? index + 1 : index - 1
+        guard images.indices.contains(nextIndex) else {
+            deleteRecordAndFiles(image)
+            dismiss()
+            return
+        }
+
+        let target = images[nextIndex]
+        let direction = nextIndex > index ? 1 : -1
+        setIncoming(target, direction: direction)
+
+        isSliding = true
+        withAnimation(.easeOut(duration: 0.4)) { ambientProgress = 1 }
+        withAnimation(Self.frostIn) { chromeFrost = 1 } completion: {
+            cardContentID = target.intID
+            withAnimation(Self.chromeClear) { chromeFrost = 0 }
+        }
+        springSlide(to: CGFloat(-direction) * width, velocity: CGFloat(-direction) * 600) {
+            deleteRecordAndFiles(image)
+            displayedTileID = target.intID
+            slideOffset = 0
+            incomingImage = nil
+            if let colors = incomingAmbient {
+                ambientA = colors
+                showAmbientA = true
+            } else {
+                crossfadeAmbient(to: target, animated: false)
+            }
+            incomingAmbient = nil
+            ambientProgress = 0
+            resetZoom()
+            cardReveal = 0
+            revealDrag = 0
+            isSliding = false
+        }
+    }
+
+    private func deleteRecordAndFiles(_ image: LocalMuseImage) {
         LocalImageStore.delete(localPath: image.localPath, thumbnailPath: image.thumbnailPath)
         modelContext.delete(image)
         try? modelContext.save()
-        dismiss()
+    }
+
+    private func handleKeyboard(_ note: Notification, hiding: Bool = false) {
+        let duration = note.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        let targetHeight: CGFloat
+        if hiding {
+            targetHeight = 0
+        } else if let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+            targetHeight = max(0, UIScreen.main.bounds.height - frame.minY)
+        } else {
+            targetHeight = keyboardHeight
+        }
+
+        withAnimation(.easeOut(duration: duration)) {
+            keyboardHeight = targetHeight
+        }
     }
 
     // MARK: - Gestures
+
+    private var handleRevealGesture: some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .global)
+            .onChanged { value in
+                guard zoomScale <= 1.05, !isSliding, !immersed else { return }
+                lockAxis(value.translation)
+                guard dragAxis == .vertical, value.translation.height < 0 else { return }
+                revealDrag = value.translation.height
+                dismissDrag = .zero
+            }
+            .onEnded { value in
+                defer { resetDragAxis() }
+                guard zoomScale <= 1.05, !isSliding, !immersed, dragAxis == .vertical else {
+                    revealDrag = 0
+                    return
+                }
+                let shouldReveal = -value.translation.height > Self.revealDistance * 0.2
+                    || value.velocity.height < -350
+                settleReveal(to: shouldReveal ? 1 : 0)
+            }
+    }
 
     /// Locks the drag to one axis on the first movement so a single gesture can't
     /// flicker between the page swipe and the dismiss swipe near the diagonal.

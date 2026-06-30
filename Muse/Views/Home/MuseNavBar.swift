@@ -276,7 +276,7 @@ struct MuseNavBar: View {
 
 /// Tactile press feedback — the control dips and springs back, so every tap feels
 /// physical. Replaces `.plain` (keeps the same flat look, adds the press response).
-private struct PressableStyle: ButtonStyle {
+struct PressableStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.86 : 1)
