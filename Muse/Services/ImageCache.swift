@@ -21,6 +21,12 @@ enum ImageCache {
         return prepared
     }
 
+    /// Cache-only lookup for SwiftUI render paths. A miss must be loaded off the
+    /// main actor so scrolling does not synchronously decode JPEGs.
+    static func cachedThumbnail(for path: String) -> UIImage? {
+        cache.object(forKey: "thumb:\(path)" as NSString)
+    }
+
     /// Full image downsampled to at most `maxDimension` pixels — the hero never
     /// needs more pixels than the screen.
     static func display(for path: String, maxDimension: CGFloat) -> UIImage? {

@@ -18,12 +18,12 @@ struct HomeView: View {
     @StateObject private var tuning = MorphTuning()
     @State private var showImagePicker = false
 
-    // Filtering / search state.
-    @State private var activeFacets: Set<String> = []
+    // Semantic search state.
     @State private var sortOrder: GallerySortOrder = .recency
     @State private var searchText: String = ""
     @State private var showSearch = false
     @State private var keyboardHeight: CGFloat = 0
+    @State private var searchSuggestionIndex = 0
     @FocusState private var searchFieldFocused: Bool
     /// Shared so the nav bar morphs into the search field and back.
     @Namespace private var navMorph
@@ -32,34 +32,44 @@ struct HomeView: View {
     /// ones can fade in place rather than vanish.
     private var tiles: [MuseTile] { images.map(\.asTile) }
 
-    private var hasActiveFilters: Bool { !activeFacets.isEmpty || !searchText.isEmpty }
+    private let searchSuggestions = [
+        "sans serif typography",
+        "blue painting",
+        "warm editorial layout",
+        "minimal product photo",
+        "brutalist architecture",
+        "handwritten notes",
+        "red poster design",
+        "soft gradient background",
+        "black and white portrait",
+        "playful packaging",
+        "ceramic texture",
+        "vintage book cover",
+        "green interior",
+        "bold type specimen",
+        "gallery wall"
+    ]
+
+    private var hasActiveSearch: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    private var searchPlaceholder: String {
+        searchSuggestions[searchSuggestionIndex % searchSuggestions.count]
+    }
 
     /// IDs that pass the current filter in sort/rank order, or `nil` when nothing
     /// is filtering.
     private var orderedVisibleIDs: [Int]? {
-        guard hasActiveFilters else { return nil }
+        guard hasActiveSearch else { return nil }
         return filteredImages.map(\.intID)
     }
 
-    /// Pipeline: locked-tag filter (smart) → free-text fuzzy rank → sort.
+    /// Pipeline: free-text semantic-ish rank over generated metadata → sort.
     private var filteredImages: [LocalMuseImage] {
-        var result = images
-
-        // Facet filter — OR within a category, AND across categories.
-        if !activeFacets.isEmpty {
-            let byCategory = Dictionary(grouping: activeFacets) { Taxonomy.parse($0)?.category }
-            result = result.filter { image in
-                byCategory.allSatisfy { category, tokens in
-                    category == nil || tokens.contains { image.facetTags.contains($0) }
-                }
-            }
-        }
-
-        // Free text: when present it both filters and ranks by overlap;
+        // Free text: when present it both filters and ranks by metadata overlap;
         // otherwise honor the chosen sort order.
         let words = searchText.lowercased().split(separator: " ").map(String.init).filter { !$0.isEmpty }
-        guard !words.isEmpty else { return sortedImages(result) }
-        return result
+        guard !words.isEmpty else { return sortedImages(images) }
+        return images
             .map { (image: $0, score: overlap($0, words)) }
             .filter { $0.score > 0 }
             .sorted { $0.score > $1.score }
@@ -69,7 +79,7 @@ struct HomeView: View {
     /// Count of query words that match a card's tags, description, or notes.
     private func overlap(_ image: LocalMuseImage, _ words: [String]) -> Int {
         let haystack = (image.tagLabels + image.facetTags.map { Taxonomy.value(of: $0) }).map { $0.lowercased() }
-        let text = ((image.aiDescription ?? "") + " " + image.notes).lowercased()
+        let text = ((image.aiDescription ?? "") + " " + image.notes + " " + haystack.joined(separator: " ")).lowercased()
         return words.reduce(0) { acc, w in
             let hit = haystack.contains { $0.contains(w) || w.contains($0) } || text.contains(w)
             return acc + (hit ? 1 : 0)
@@ -103,7 +113,6 @@ struct HomeView: View {
                     galleryContent
                 }
             }
-            .blur(radius: isExpanded ? 18 : 0)
             .scaleEffect(isExpanded ? 0.96 : 1)
             .animation(ImageDetailView.transition, value: isExpanded)
             .background(MuseTheme.Semantic.surfacePage.ignoresSafeArea())
@@ -152,6 +161,7 @@ struct HomeView: View {
                 backfillFacets()
             }
         }
+        .task { await rotateSearchSuggestion() }
     }
 
     /// Backfill controlled facet tags onto images saved before tagging existed.
@@ -238,12 +248,12 @@ struct HomeView: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .overlay {
-                if hasActiveFilters && filteredImages.isEmpty {
+                if hasActiveSearch && filteredImages.isEmpty {
                     VStack(spacing: 8) {
                         Text("No matches")
                             .font(MuseTheme.serif(22))
                             .foregroundStyle(MuseTheme.Semantic.textHeading)
-                        Text("Try removing a filter")
+                        Text("Try another search")
                             .font(.subheadline)
                             .foregroundStyle(MuseTheme.Semantic.textSecondary)
                     }
@@ -261,22 +271,16 @@ struct HomeView: View {
 
             // The bottom bar. At rest it's the consolidated nav pill; tapping
             // search morphs it (shared namespace) into the keyboard-docked search
-            // field + suggestions card. One bottom-anchored stack the keyboard
-            // lifts (manual offset) so the rise and stretch ride a single clock.
+            // field. SwiftUI's keyboard avoidance lifts it; our bottom padding
+            // defines the visible gap above the keyboard.
             VStack(spacing: 10) {
                     // The search bar stays as long as it's being typed in OR holds
-                    // active filters — so dismissing the keyboard while populated drops
-                    // it to rest (keyboard down → offset 0) instead of collapsing. It
-                    // only returns to the compact nav bar once it's empty.
-                    if showSearch || hasActiveFilters {
-                        // Suggestions only while actively typing.
-                        if showSearch {
-                            SearchFilterView(searchText: $searchText, activeFacets: $activeFacets)
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        }
+                    // a query — so dismissing the keyboard while populated drops it
+                    // to rest instead of collapsing.
+                    if showSearch || hasActiveSearch {
                         searchBar
                             // Fade the search bar's content out fast on collapse so the
-                            // trailing ✕/chips vanish while the bar is still wide.
+                            // trailing control vanishes while the bar is still wide.
                             .transition(.asymmetric(
                                 insertion: .opacity,
                                 removal: .opacity.animation(.easeOut(duration: 0.14))
@@ -311,13 +315,9 @@ struct HomeView: View {
                         .animation(.easeInOut(duration: 0.2), value: viewModeExpanded)
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 40)
-                .offset(y: -keyboardOverlap)
+                .padding(.bottom, bottomBarPadding)
                 .allowsHitTesting(displayedTileID == nil)
         }
-        // Opt the whole gallery out of keyboard avoidance so the bar never moves
-        // and the search bar rises only by its single manual offset (no double rise).
-        .ignoresSafeArea(.keyboard, edges: .bottom)
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { note in
             handleKeyboard(note, showing: true)
         }
@@ -328,17 +328,8 @@ struct HomeView: View {
         .sensoryFeedback(.impact(weight: .light, intensity: 0.6), trigger: showSearch)
     }
 
-    /// How far the search bar lifts to sit 16pt above the keyboard. (The bar
-    /// already has 12pt bottom padding, so add 4 to reach a 16pt gap.)
-    private var keyboardOverlap: CGFloat {
-        keyboardHeight <= 0 ? 0 : max(0, keyboardHeight - bottomSafeInset + 4)
-    }
-
-    private var bottomSafeInset: CGFloat {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }?.safeAreaInsets.bottom ?? 0
+    private var bottomBarPadding: CGFloat {
+        keyboardHeight > 0 ? 16 : 40
     }
 
     /// Open search from the nav bar. The search field only exists while
@@ -365,10 +356,21 @@ struct HomeView: View {
         }
     }
 
-    private func clearAllFilters() {
+    private func clearSearch() {
         withAnimation(.museBar) {
-            activeFacets.removeAll()
             searchText = ""
+        }
+    }
+
+    private func rotateSearchSuggestion() async {
+        guard !searchSuggestions.isEmpty else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(2))
+            guard !Task.isCancelled else { return }
+            guard !hasActiveSearch else { continue }
+            withAnimation(.easeInOut(duration: 0.32)) {
+                searchSuggestionIndex = (searchSuggestionIndex + 1) % searchSuggestions.count
+            }
         }
     }
 
@@ -406,37 +408,10 @@ struct HomeView: View {
         }
     }
 
-    /// The resting search + filter capsule. Shows a placeholder when idle, or the
-    /// active filter pills + a clear-all ✕ when filtering. Tapping it (anywhere but
-    /// a pill or the ✕) lifts into the keyboard-docked typing bar.
-    private var sortedActiveFacets: [String] {
-        activeFacets.sorted { Taxonomy.value(of: $0) < Taxonomy.value(of: $1) }
-    }
-
-    /// A removable filter pill — lives *inside* the search bar so it rides the
-    /// bar's morph as part of the same element.
-    private func facetChip(_ token: String) -> some View {
-        Button { withAnimation(.museBar) { _ = activeFacets.remove(token) } } label: {
-            HStack(spacing: 4) {
-                Text(Taxonomy.value(of: token)).font(.system(size: 13, weight: .medium))
-                Image(systemName: "xmark").font(.system(size: 8, weight: .bold)).opacity(0.55)
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 5)
-            .background(MuseTheme.Alias.fillTintNeutral, in: Capsule())
-            .foregroundStyle(MuseTheme.Alias.textOnTintNeutral)
-        }
-        .buttonStyle(.plain)
-    }
-
     /// The single search bar — one capsule that morphs between resting and active.
-    /// Active-filter pills live inside it (a token field) so they travel with the
-    /// bar through the transition; the field placeholder stays "Search inspiration".
+    /// The placeholder cycles through natural language examples that match image
+    /// metadata produced by analysis.
     private var searchBar: some View {
-        // The morphing capsule is the CONTAINER; the content lives in its overlay and
-        // is clipped to it. So when the bar collapses (the matched background shrinks to
-        // the compact pill), the trailing ✕ and chips move inward and clip with it —
-        // they stay part of the bar instead of floating outside as it shrinks.
         Capsule()
             .fill(.ultraThinMaterial)
             .overlay(Capsule().fill(MuseTheme.Semantic.navBarSurface.opacity(0.8)))
@@ -452,22 +427,10 @@ struct HomeView: View {
                         .frame(width: 24, height: 24)
                         .matchedGeometryEffect(id: "searchSlot", in: navMorph, isSource: true)
 
-                    // One stable token field: pills (a ForEach) then a persistent field.
-                    // Keeping the field in the same structural slot means adding a chip
-                    // doesn't rebuild it, so focus (and the keyboard) is never lost.
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(sortedActiveFacets, id: \.self) { token in
-                                facetChip(token)
-                            }
-                            searchField(placeholder: activeFacets.isEmpty ? "Search inspiration" : "")
-                                .frame(minWidth: 160)
-                        }
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
+                    searchField
 
-                    // Stable trailing slot — chevron when active, clear-✕ when resting
-                    // with filters, cross-faded in place.
+                    // Stable trailing slot — chevron when active, clear when resting
+                    // with a query, cross-faded in place.
                     ZStack {
                         Button { searchFieldFocused = false } label: {
                             Image(systemName: "chevron.down")
@@ -478,18 +441,18 @@ struct HomeView: View {
                         .opacity(showSearch ? 1 : 0)
                         .allowsHitTesting(showSearch)
 
-                        Button { clearAllFilters() } label: {
+                        Button { clearSearch() } label: {
                             Image(systemName: "xmark")
                                 .font(.system(size: 10, weight: .bold))
                                 .foregroundStyle(MuseTheme.Semantic.textSecondary)
                                 .frame(width: 24, height: 24)
                         }
                         .buttonStyle(.plain)
-                        .opacity((!showSearch && hasActiveFilters) ? 1 : 0)
-                        .allowsHitTesting(!showSearch && hasActiveFilters)
+                        .opacity((!showSearch && hasActiveSearch) ? 1 : 0)
+                        .allowsHitTesting(!showSearch && hasActiveSearch)
                     }
                     .frame(width: 28, height: 28)
-                    .opacity(showSearch || hasActiveFilters ? 1 : 0)
+                    .opacity(showSearch || hasActiveSearch ? 1 : 0)
                 }
                 .padding(.horizontal, 16)
             }
@@ -500,14 +463,22 @@ struct HomeView: View {
             .onTapGesture { if !showSearch { searchFieldFocused = true } }
     }
 
-    private func searchField(placeholder: String) -> some View {
-        TextField(placeholder, text: $searchText)
-            .font(.system(size: 16))
-            .foregroundStyle(MuseTheme.Semantic.textBody)
-            .focused($searchFieldFocused)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .submitLabel(.search)
+    private var searchField: some View {
+        ZStack(alignment: .leading) {
+            if !hasActiveSearch {
+                RollingSearchPlaceholder(text: searchPlaceholder)
+                    .allowsHitTesting(false)
+            }
+
+            TextField("", text: $searchText)
+                .font(.system(size: 16))
+                .foregroundStyle(MuseTheme.Semantic.textBody)
+                .focused($searchFieldFocused)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var emptyState: some View {
@@ -561,5 +532,25 @@ struct HomeView: View {
             .background(MuseTheme.Semantic.tagBackground(for: category))
             .foregroundStyle(MuseTheme.Semantic.tagForeground(for: category))
             .clipShape(Capsule())
+    }
+}
+
+private struct RollingSearchPlaceholder: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .id(text)
+            .font(.system(size: 16))
+            .foregroundStyle(MuseTheme.Semantic.textSecondary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.82)
+            .transition(.asymmetric(
+                insertion: .move(edge: .bottom).combined(with: .opacity),
+                removal: .move(edge: .top).combined(with: .opacity)
+            ))
+            .animation(.easeInOut(duration: 0.32), value: text)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .clipped()
     }
 }

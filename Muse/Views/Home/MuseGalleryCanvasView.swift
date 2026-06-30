@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Gallery canvas for real `MuseTile` images — identical logic to `GalleryCanvasView`
 /// but renders actual photos from local storage instead of gradient placeholders.
@@ -156,11 +157,8 @@ struct MuseGalleryCanvasView: View {
         let h = placement.frame.height * zoom
 
         return Group {
-            if let thumbPath = tile.thumbnailPath,
-               let uiImage = ImageCache.thumbnail(for: thumbPath) {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+            if let thumbPath = tile.thumbnailPath {
+                CachedThumbnailImage(path: thumbPath)
                     .frame(width: w, height: h)
                     .clipped()
             } else {
@@ -670,5 +668,34 @@ struct MuseGalleryCanvasView: View {
         if value < lower { return lower + (value - lower) * 0.25 }
         if value > upper { return upper + (value - upper) * 0.25 }
         return value
+    }
+}
+
+private struct CachedThumbnailImage: View {
+    let path: String
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                Color(white: 0.18)
+            }
+        }
+        .task(id: path) {
+            if let cached = ImageCache.cachedThumbnail(for: path) {
+                image = cached
+                return
+            }
+
+            let loaded = await Task.detached(priority: .userInitiated) {
+                ImageCache.thumbnail(for: path)
+            }.value
+            guard !Task.isCancelled else { return }
+            image = loaded
+        }
     }
 }
