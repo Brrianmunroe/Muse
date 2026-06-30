@@ -113,7 +113,7 @@ struct GalleryCanvasView: View {
             .fill(tile.gradient)
             .frame(width: placement.frame.width * zoom, height: placement.frame.height * zoom)
             .rotationEffect(placement.rotation)
-            .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
+            .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
             .blur(radius: blurAmounts[tile.id] ?? 0)
     }
 

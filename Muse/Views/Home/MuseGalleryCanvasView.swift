@@ -170,7 +170,7 @@ struct MuseGalleryCanvasView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
         .rotationEffect(placement.rotation)
-        .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
+        .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
         .blur(radius: blurAmounts[tile.id] ?? 0)
         .opacity(tileOpacity[tile.id] ?? 1)
     }
