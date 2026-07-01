@@ -14,6 +14,7 @@ struct MuseImageDetailView: View {
     static let transition = Animation.timingCurve(0.33, 0, 0.2, 1, duration: 0.42)
     private static let snapBack = Animation.spring(response: 0.32, dampingFraction: 0.84)
     private static let ambientFade = Animation.easeInOut(duration: 0.5)
+    private static let revealSpring = Animation.museBar
     private static let cellRadius: CGFloat = 5
     private static let heroRadius: CGFloat = 18
     private static let motionBlurPeakMin: CGFloat = 1.5
@@ -198,7 +199,7 @@ struct MuseImageDetailView: View {
         ZStack {
             heroImage(image: current, dest: dest, width: geo.size.width)
                 .offset(x: slideOffset)
-            morphingGlassCard(image: current, dest: dest)
+            morphingGlassCard(image: current, dest: dest, screenWidth: geo.size.width)
                 .position(x: dest.midX, y: morphingCardCenterY(for: dest))
                 .offset(x: slideOffset)
 
@@ -215,7 +216,12 @@ struct MuseImageDetailView: View {
                     .shadow(color: .black.opacity(0.4), radius: 22, y: 12)
                     .position(x: incomingDest.midX, y: incomingDest.midY)
                     .offset(x: slideOffset + side * geo.size.width)
-                morphingGlassCard(image: incoming, dest: incomingDest, interactive: false)
+                morphingGlassCard(
+                    image: incoming,
+                    dest: incomingDest,
+                    screenWidth: geo.size.width,
+                    interactive: false
+                )
                     .position(x: incomingDest.midX, y: morphingCardCenterY(for: incomingDest))
                     .offset(x: slideOffset + side * geo.size.width)
             }
@@ -398,7 +404,7 @@ struct MuseImageDetailView: View {
 
     private var morphingCardHeight: CGFloat {
         let p = min(max(revealProgress, 0), 1)
-        return 5 + (activeCardReserve - 5) * p
+        return morphingShellHeight(for: p)
     }
 
     private func morphingCardTop(for dest: CGRect) -> CGFloat {
@@ -413,36 +419,35 @@ struct MuseImageDetailView: View {
     private func morphingGlassCard(
         image: LocalMuseImage,
         dest: CGRect,
+        screenWidth: CGFloat,
         interactive: Bool = true
     ) -> some View {
         let p = min(max(revealProgress, 0), 1)
         let handleWidth: CGFloat = 46
-        let expandedWidth = max(handleWidth, dest.width - 4)
-        let shellWidth = handleWidth + (expandedWidth - handleWidth) * p
+        let expandedWidth = max(handleWidth, screenWidth - 32)
+        let shellWidth = morphingShellWidth(for: p, expandedWidth: expandedWidth)
         let shellHeight = morphingCardHeight
         let frameHeight = max(33, shellHeight)
+        let shellYOffset = max(0, (frameHeight - shellHeight) / 2)
         let corner = min(shellHeight / 2, 2.5 + (18 - 2.5) * p)
-        let contentOpacity = Double(min(max((p - 0.18) / 0.72, 0), 1))
-        let frostOpacity = Double(min(max(p / 0.24, 0), 1))
-        let handleOpacity = Double(max(0, 1 - p * 1.25))
+        let contentOpacity = Double(min(max((p - 0.9) / 0.1, 0), 1))
+        let lightFillOpacity = 0.68 * Double(1 - p)
+        let darkFillOpacity = 0.28 * Double(p)
+        let strokeOpacity = 0.28 * Double(p)
 
         return ZStack(alignment: .top) {
             RoundedRectangle(cornerRadius: corner, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Self.glassForeground.opacity(lightFillOpacity))
                 .background(
                     RoundedRectangle(cornerRadius: corner, style: .continuous)
-                        .fill(Color.white.opacity(0.16 * frostOpacity))
+                        .fill(Color.black.opacity(darkFillOpacity))
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: corner, style: .continuous)
-                        .stroke(Color.white.opacity(0.28 * frostOpacity), lineWidth: 1)
+                        .stroke(Color.white.opacity(strokeOpacity), lineWidth: 1)
                 )
-                .opacity(frostOpacity)
                 .frame(width: shellWidth, height: shellHeight)
-
-            RoundedRectangle(cornerRadius: corner, style: .continuous)
-                .fill(Self.glassForeground.opacity(0.68 * handleOpacity))
-                .frame(width: shellWidth, height: shellHeight)
+                .offset(y: shellYOffset)
 
             glassCardContent(image: image)
                 .padding(18)
@@ -469,91 +474,148 @@ struct MuseImageDetailView: View {
         .allowsHitTesting(interactive && !immersed)
     }
 
+    private func morphingShellWidth(for progress: CGFloat, expandedWidth: CGFloat) -> CGFloat {
+        let handleWidth: CGFloat = 46
+        let blobWidth: CGFloat = 28
+        let blobPeak: CGFloat = 0.09
+        let blobEnd: CGFloat = 0.2
+        if progress < blobPeak {
+            return lerp(handleWidth, blobWidth, smoothStep(progress / blobPeak))
+        }
+        if progress < blobEnd {
+            let normalWidth = handleWidth + (expandedWidth - handleWidth) * blobEnd
+            return lerp(blobWidth, normalWidth, smoothStep((progress - blobPeak) / (blobEnd - blobPeak)))
+        }
+        return handleWidth + (expandedWidth - handleWidth) * progress
+    }
+
+    private func morphingShellHeight(for progress: CGFloat) -> CGFloat {
+        let handleHeight: CGFloat = 5
+        let blobHeight: CGFloat = 28
+        let blobPeak: CGFloat = 0.09
+        let blobEnd: CGFloat = 0.2
+        if progress < blobPeak {
+            return lerp(handleHeight, blobHeight, smoothStep(progress / blobPeak))
+        }
+        if progress < blobEnd {
+            let normalHeight = handleHeight + (activeCardReserve - handleHeight) * blobEnd
+            return lerp(blobHeight, normalHeight, smoothStep((progress - blobPeak) / (blobEnd - blobPeak)))
+        }
+        return handleHeight + (activeCardReserve - handleHeight) * progress
+    }
+
+    private func smoothStep(_ value: CGFloat) -> CGFloat {
+        let t = min(max(value, 0), 1)
+        return t * t * (3 - 2 * t)
+    }
+
+    private func lerp(_ start: CGFloat, _ end: CGFloat, _ amount: CGFloat) -> CGFloat {
+        start + (end - start) * amount
+    }
+
     // MARK: - Glass card
 
     private func glassCardContent(image: LocalMuseImage) -> some View {
         // Deliberate per-section rhythm: a single uniform gap read as uneven across
         // blocks of different density, so each section sets its own top gap instead.
-        VStack(alignment: .leading, spacing: 0) {
-            if !image.tagLabels.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(image.tagLabels, id: \.self) { label in
-                            Text(label)
-                                .font(.system(size: 12, weight: .medium))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(Color.white.opacity(0.16))
-                                .foregroundStyle(Self.glassForeground)
-                                .clipShape(Capsule())
+        ZStack(alignment: .topTrailing) {
+            VStack(alignment: .leading, spacing: 0) {
+                if !image.tagLabels.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(image.tagLabels, id: \.self) { label in
+                                Text(label)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(Color.white.opacity(0.16))
+                                    .foregroundStyle(Self.glassForeground)
+                                    .clipShape(Capsule())
+                            }
                         }
                     }
-                }
-                .padding(.bottom, 16)
-            }
-
-            // No label — the serif description is the card's editorial voice.
-            if let description = image.aiDescription {
-                Text(description)
-                    .font(MuseTheme.serif(18))
-                    .lineSpacing(3)
-                    .foregroundStyle(Self.glassForeground)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text("Analyzing…")
-                    .font(MuseTheme.serif(18))
-                    .foregroundStyle(Self.glassForeground.opacity(0.45))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            VStack(alignment: .leading, spacing: 5) {
-                HStack {
-                    Text("Your notes")
-                        .font(.system(size: 10, weight: .semibold))
-                        .tracking(1)
-                        .textCase(.uppercase)
-                        .foregroundStyle(Self.glassForeground.opacity(0.65))
-                    Spacer()
-                    if notesFocused {
-                        Button("Done") { notesFocused = false }
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundStyle(Self.glassForeground.opacity(0.8))
-                            .buttonStyle(.plain)
-                    }
+                    .padding(.trailing, 34)
+                    .padding(.bottom, 16)
                 }
 
-                // Tap-to-edit: reads as plain text at rest with a quiet placeholder
-                // when empty; the dark field only appears once focused.
-                ZStack(alignment: .topLeading) {
-                    if image.notes.isEmpty {
-                        Text("Add a note")
-                            .font(.system(size: 15))
-                            .foregroundStyle(Self.glassForeground.opacity(0.4))
-                            .padding(.horizontal, notesFocused ? 13 : 0)
-                            .padding(.vertical, notesFocused ? 11 : 2)
-                            .allowsHitTesting(false)
-                    }
-                    TextEditor(text: notesBinding(for: image))
-                        .font(.system(size: 15))
+                // No label — the serif description is the card's editorial voice.
+                if let description = image.aiDescription {
+                    Text(description)
+                        .font(MuseTheme.serif(18))
+                        .lineSpacing(3)
                         .foregroundStyle(Self.glassForeground)
-                        .scrollContentBackground(.hidden)
-                        .focused($notesFocused)
-                        .frame(minHeight: notesFocused ? 60 : 24, maxHeight: 120)
-                        .padding(.horizontal, notesFocused ? 13 : 0)
-                        .padding(.vertical, notesFocused ? 11 : 0)
-                        .background(notesFocused ? Color.black.opacity(0.28) : Color.clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text("Analyzing…")
+                        .font(MuseTheme.serif(18))
+                        .foregroundStyle(Self.glassForeground.opacity(0.45))
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-            }
-            .padding(.top, 20)
-            .animation(.easeInOut(duration: 0.2), value: notesFocused)
 
-            Text("Saved \(image.createdAt.formatted(date: .abbreviated, time: .omitted))")
-                .font(.system(size: 12))
-                .foregroundStyle(Self.glassForeground.opacity(0.55))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // Smaller, distinct gap for the footnote.
-                .padding(.top, 14)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        Text("Your notes")
+                            .font(.system(size: 10, weight: .semibold))
+                            .tracking(1)
+                            .textCase(.uppercase)
+                            .foregroundStyle(Self.glassForeground.opacity(0.65))
+                        Spacer()
+                        if notesFocused {
+                            Button("Done") { notesFocused = false }
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Self.glassForeground.opacity(0.8))
+                                .buttonStyle(.plain)
+                        }
+                    }
+
+                    // Tap-to-edit: reads as plain text at rest with a quiet placeholder
+                    // when empty; the dark field only appears once focused.
+                    ZStack(alignment: .topLeading) {
+                        if image.notes.isEmpty {
+                            Text("Add a note")
+                                .font(.system(size: 15))
+                                .foregroundStyle(Self.glassForeground.opacity(0.4))
+                                .padding(.horizontal, notesFocused ? 13 : 0)
+                                .padding(.vertical, notesFocused ? 11 : 2)
+                                .allowsHitTesting(false)
+                        }
+                        TextEditor(text: notesBinding(for: image))
+                            .font(.system(size: 15))
+                            .foregroundStyle(Self.glassForeground)
+                            .scrollContentBackground(.hidden)
+                            .focused($notesFocused)
+                            .frame(minHeight: notesFocused ? 60 : 24, maxHeight: 120)
+                            .padding(.horizontal, notesFocused ? 13 : 0)
+                            .padding(.vertical, notesFocused ? 11 : 0)
+                            .background(notesFocused ? Color.black.opacity(0.28) : Color.clear)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
+                .padding(.top, 20)
+                .animation(.easeInOut(duration: 0.2), value: notesFocused)
+
+                Text("Saved \(image.createdAt.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Self.glassForeground.opacity(0.55))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // Smaller, distinct gap for the footnote.
+                    .padding(.top, 14)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                notesFocused = false
+                settleReveal(to: 0)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Self.glassForeground.opacity(0.86))
+                    .frame(width: 28, height: 28)
+                    .background(Color.white.opacity(0.13), in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(PressableStyle())
+            .accessibilityLabel("Close notes")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -763,7 +825,7 @@ struct MuseImageDetailView: View {
 
     /// Tap toggles the immersive black backdrop; entering it folds the card away.
     private func toggleImmerse() {
-        withAnimation(Self.transition) {
+        withAnimation(Self.revealSpring) {
             immersed.toggle()
             if immersed { cardReveal = 0; revealDrag = 0 }
         }
@@ -771,7 +833,7 @@ struct MuseImageDetailView: View {
 
     /// Springs the info card to fully shown or hidden after a reveal/collapse drag.
     private func settleReveal(to target: CGFloat) {
-        withAnimation(.interpolatingSpring(stiffness: 240, damping: 28)) {
+        withAnimation(Self.revealSpring) {
             cardReveal = target
             revealDrag = 0
         }
